@@ -15,12 +15,12 @@ from PyQt6.QtGui import (QAction, QIcon, QFont, QColor, QTextCursor,
 from PyQt6.QtCore import Qt, QSize, QUrl, QRegularExpression
 
 # =============================================================================
-# CONFIGURACIÓN (REVERTIDO A RTF)
+# CONFIGURACIÓN
 # =============================================================================
-APP_NAME = "Gestor de Modelos Pro (RTF Classic)"
+APP_NAME = "Gestor Maletín (Converter Pro)"
 
-# ID para la barra de tareas de Windows
-myappid = 'martdumo.madnotes.pro.rtf' 
+# ID para la barra de tareas
+myappid = 'martdumo.maletin.pro.v1' 
 try:
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 except:
@@ -38,10 +38,10 @@ if getattr(sys, 'frozen', False):
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# VUELVE A SER "modelos"
-MODELS_DIR = os.path.join(BASE_DIR, "modelos")
+# CAMBIO 1: La carpeta ahora es "maletin"
+MODELS_DIR = os.path.join(BASE_DIR, "maletin")
 
-# TAMAÑO DE FUENTE BASE: 14pt (Estilo Dark Original)
+# ESTILOS (14pt Base - Tokyo Night Tweaked)
 DARK_STYLESHEET = """
 QMainWindow, QWidget, QDialog {
     background-color: #1e1e1e;
@@ -170,15 +170,18 @@ class InsertLinkDialog(QDialog):
 class EnhancedLinkHighlighter(QSyntaxHighlighter):
     def __init__(self, parent=None):
         super().__init__(parent)
+        # Formato Links Internos (##modelo##) -> TURQUESA
         self.internal_link_format = QTextCharFormat()
         self.internal_link_format.setForeground(QColor("#4EC9B0")) 
         self.internal_link_format.setFontUnderline(True)
         self.internal_link_format.setFontWeight(QFont.Weight.Bold)
+        # Formato Links Externos (https://) -> VERDE
         self.external_link_format = QTextCharFormat()
         self.external_link_format.setForeground(QColor("#6A9955")) 
         self.external_link_format.setFontUnderline(True)
         self.external_link_format.setFontWeight(QFont.Weight.Bold)
-        self.internal_pattern = QRegularExpression(r"@@[\w\.-]+")
+        
+        self.internal_pattern = QRegularExpression(r"##[\w\.-]+##")
         self.external_pattern = QRegularExpression(r"https?://[\w./?=&#-]+")
 
     def highlightBlock(self, text):
@@ -198,6 +201,7 @@ class SmartLinkTextEdit(QTextEdit):
         self.highlighter = EnhancedLinkHighlighter(self.document())
         self.setMouseTracking(True)
         self.viewport().setMouseTracking(True)
+        # Estilo para links HTML reales
         self.document().setDefaultStyleSheet("a { text-decoration: underline; color: #4EC9B0; font-weight: bold; }")
         
         font = self.font()
@@ -214,13 +218,13 @@ class SmartLinkTextEdit(QTextEdit):
         pos_in_block = cursor.positionInBlock()
         text_before = block_text[:pos_in_block]
         
-        # RESTAURADO: Sintaxis ##Modelo## que se convierte en Link
         match = re.search(r"##([\w\.-]+)##$", text_before)
         if match:
             model_name = match.group(1)
             full_tag = match.group(0)
             cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.KeepAnchor, len(full_tag))
             cursor.removeSelectedText()
+            # Convertir a HTML Link interno
             html = f'<a href="model://{model_name}">{model_name}</a>&nbsp;'
             cursor.insertHtml(html)
             self.setFontPointSize(14)
@@ -234,10 +238,13 @@ class SmartLinkTextEdit(QTextEdit):
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            # Prioridad 1: Anchor HTML
             url = self.anchorAt(event.pos())
             if url:
                 self.parent_window.handle_link(url)
                 return 
+            
+            # Prioridad 2: Texto Link (## o http)
             link_info = self.get_link_at_pos(event.pos())
             if link_info:
                 l_type, l_target = link_info
@@ -252,11 +259,11 @@ class SmartLinkTextEdit(QTextEdit):
         cursor = self.cursorForPosition(pos)
         block_text = cursor.block().text()
         pos_in_block = cursor.positionInBlock()
-        internal_regex = re.compile(r"@@[\w\.-]+")
+        internal_regex = re.compile(r"##[\w\.-]+##")
         for match in internal_regex.finditer(block_text):
             start, end = match.span()
             if start <= pos_in_block <= end:
-                return ("internal", match.group()[2:]) 
+                return ("internal", match.group()[2:-2]) 
         external_regex = re.compile(r"https?://[\w./?=&#-]+")
         for match in external_regex.finditer(block_text):
             start, end = match.span()
@@ -351,6 +358,12 @@ class ModelManagerApp(QMainWindow):
         icon_path = resource_path("app.ico")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
+
+        # --- CAMBIO: Detección de Argumentos (Abrir con...) ---
+        if len(sys.argv) > 1:
+            external_file = sys.argv[1]
+            if os.path.exists(external_file):
+                self.import_and_open_external(external_file)
 
     def ensure_directory(self):
         if not os.path.exists(MODELS_DIR): os.makedirs(MODELS_DIR)
@@ -503,6 +516,69 @@ class ModelManagerApp(QMainWindow):
         tb_act(">|", lambda: self.editor.setAlignment(Qt.AlignmentFlag.AlignRight))
         tb_act("|=|", lambda: self.editor.setAlignment(Qt.AlignmentFlag.AlignJustify))
 
+    # --- NUEVA FUNCIÓN: IMPORTAR MD EXTERNO Y CONVERTIR A VISUAL ---
+    def import_and_open_external(self, filepath):
+        try:
+            # 1. Leer MD puro
+            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                md_content = f.read()
+            
+            # 2. Traducción al Vuelo (MD -> HTML Visual)
+            html_visual = self.parse_markdown_visual(md_content)
+            
+            # 3. Preparar Guardado en Maletin
+            filename = os.path.basename(filepath)
+            # Cambiar extensión a .rtf (interno)
+            filename = os.path.splitext(filename)[0] + ".rtf"
+            target_path = os.path.join(MODELS_DIR, filename)
+            
+            # 4. Cargar en Editor
+            self.editor.setHtml(html_visual)
+            
+            # 5. Establecer ruta futura (sin guardar aun, o guardando directo)
+            # Para evitar confusiones, lo guardamos ya en el maletin.
+            self.current_file_path = target_path
+            
+            # Verificar si ya existe para no sobrescribir sin aviso?
+            # En este caso asumimos comportamiento de "Importar y Abrir"
+            self.save_model() # Guarda el RTF en Maletin
+            
+            self.load_models() # Refrescar lista
+            self.status_bar.showMessage(f"Importado y abierto: {filename}")
+            
+            # Seleccionar en la lista visualmente
+            items = self.list_widget.findItems(filename, Qt.MatchFlag.MatchFixedString)
+            if items:
+                self.list_widget.setCurrentItem(items[0])
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error de Importación", f"No se pudo importar el MD:\n{e}")
+
+    def parse_markdown_visual(self, text):
+        """Convierte Markdown básico a HTML para el RichEdit"""
+        # Escapar HTML existente en el texto para que se vea literal
+        text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        
+        # 1. Headers (# Titulo -> h1)
+        text = re.sub(r'^# (.*?)$', r'<h1 style="font-size:24pt; font-weight:600; color:#4EC9B0;">\1</h1>', text, flags=re.MULTILINE)
+        text = re.sub(r'^## (.*?)$', r'<h2 style="font-size:20pt; font-weight:600; color:#4EC9B0;">\1</h2>', text, flags=re.MULTILINE)
+        text = re.sub(r'^### (.*?)$', r'<h3 style="font-size:16pt; font-weight:600; color:#4EC9B0;">\1</h3>', text, flags=re.MULTILINE)
+        
+        # 2. Bold (**texto**)
+        text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
+        
+        # 3. Italic (*texto*)
+        text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)
+        
+        # 4. WikiLinks [[Modelo]] -> <a href="model://Modelo">Modelo</a>
+        text = re.sub(r'\[\[(.*?)\]\]', r'<a href="model://\1" style="color:#4EC9B0; font-weight:bold; text-decoration:underline;">\1</a>', text)
+        
+        # 5. Saltos de línea (MD usa \n, HTML usa <br>)
+        text = text.replace('\n', '<br>')
+        
+        return text
+
+    # --- RESTO DE LÓGICA ---
     def add_to_history(self, filepath):
         if self.is_navigating: return
         if self.history and self.history_index >= 0:
@@ -574,7 +650,6 @@ class ModelManagerApp(QMainWindow):
             QMessageBox.warning(self, "Error", f"Error abriendo: {e}")
 
     def create_new(self, name):
-        # RESTAURADO: Extensión .rtf
         filename = f"{name}.rtf"
         path = os.path.join(MODELS_DIR, filename)
         try:
@@ -598,7 +673,6 @@ class ModelManagerApp(QMainWindow):
         self.content_cache = {}
         try:
             for f in os.listdir(MODELS_DIR):
-                # RESTAURADO: Filtro para .rtf (y otros legacy)
                 if f.lower().endswith(('.rtf','.txt','.html')):
                     path = os.path.join(MODELS_DIR, f)
                     try:
@@ -630,7 +704,6 @@ class ModelManagerApp(QMainWindow):
         try:
             with open(path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
-            # RESTAURADO: Detección HTML/RTF
             if "{\\rtf" in content or "<html" in content: self.editor.setHtml(content)
             else: self.editor.setPlainText(content)
             
@@ -656,7 +729,7 @@ class ModelManagerApp(QMainWindow):
 
     def save_model(self):
         if self.current_file_path:
-            content = self.editor.toHtml() # RESTAURADO: Guardar como HTML
+            content = self.editor.toHtml()
             with open(self.current_file_path, 'w', encoding='utf-8') as f:
                 f.write(content)
             self.editor.document().setModified(False)
@@ -703,7 +776,6 @@ class ModelManagerApp(QMainWindow):
                     if not os.path.exists(rp):
                         with open(p, 'r', encoding='utf-8', errors='ignore') as fi: t=fi.read()
                         with open(rp, 'w', encoding='utf-8') as fo: 
-                            # Importar con fuente 14
                             fo.write(f'<html><body style="font-size:14pt;"><pre>{t}</pre></body></html>')
                         c+=1
             self.load_models()
