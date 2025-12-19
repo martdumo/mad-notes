@@ -1,0 +1,26 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Caches
+.pytest_cache/
+.mypy_cache/
+
+# Virtual Environments
+venv/
+env/
+.env
+
+# IDEs
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# --- MAD NOTES SPECIFIC ---
+# Ignorar todos los archivos dentro de modelos
+modelos/*
+# ...pero mantener la carpeta 'modelos' vacía en el repo (truco gitkeep)
+!modelos/.gitkeep
