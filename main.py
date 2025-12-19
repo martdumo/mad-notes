@@ -17,10 +17,10 @@ from PyQt6.QtCore import Qt, QSize, QUrl, QRegularExpression
 # =============================================================================
 # CONFIGURACIÓN
 # =============================================================================
-APP_NAME = "Gestor Maletín (Converter Pro)"
+APP_NAME = "Gestor Maletín (Tokyo Terminal)"
 
-# ID para la barra de tareas
-myappid = 'martdumo.maletin.pro.v1' 
+# ID de Aplicación
+myappid = 'martdumo.maletin.tokyo.v16' 
 try:
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 except:
@@ -38,95 +38,157 @@ if getattr(sys, 'frozen', False):
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# CAMBIO 1: La carpeta ahora es "maletin"
 MODELS_DIR = os.path.join(BASE_DIR, "maletin")
 
-# ESTILOS (14pt Base - Tokyo Night Tweaked)
-DARK_STYLESHEET = """
-QMainWindow, QWidget, QDialog {
-    background-color: #1e1e1e;
-    color: #e0e0e0;
-    font-family: 'Segoe UI', sans-serif;
-    font-size: 14pt;
-}
-QListWidget {
-    background-color: #252526;
-    color: #f0f0f0;
-    border: 1px solid #3e3e42;
+# =============================================================================
+# ESTILOS TOKYO NIGHT (KITTY STYLE)
+# =============================================================================
+C_BG      = "#1a1b26"
+C_SIDE    = "#16161e"
+C_FG      = "#c0caf5"
+C_SEL     = "#33467c"
+C_ACCENT  = "#7aa2f7"
+C_URGENT  = "#f7768e"
+C_SUCCESS = "#9ece6a"
+C_WARNING = "#e0af68"
+C_BORDER  = "#414868"
+C_LINE    = "#292e42"
+
+FONT_FAMILY = "'Cascadia Code', 'Consolas', 'Courier New', monospace"
+FONT_SIZE   = "16pt"
+
+TOKYO_STYLESHEET = f"""
+QMainWindow, QDialog {{
+    background-color: {C_BG};
+    color: {C_FG};
+    font-family: {FONT_FAMILY};
+    font-size: {FONT_SIZE};
+}}
+QWidget {{
+    background-color: {C_BG};
+    color: {C_FG};
+}}
+QListWidget {{
+    background-color: {C_SIDE};
+    color: {C_FG};
+    border: 1px solid {C_BORDER};
+    border-radius: 6px;
+    padding: 10px;
+    selection-background-color: {C_SEL};
+    selection-color: #ffffff;
+}}
+QListWidget::item:hover {{
+    background-color: {C_LINE};
+}}
+QListWidget::item:selected {{
+    background-color: {C_SEL};
+    border: 1px solid {C_ACCENT};
+}}
+QTextEdit {{
+    background-color: {C_BG};
+    color: {C_FG};
+    border: 1px solid {C_BORDER};
+    border-radius: 6px;
+    padding: 10px;
+    selection-background-color: {C_SEL};
+    selection-color: #ffffff;
+    font-family: {FONT_FAMILY};
+}}
+QLineEdit {{
+    background-color: {C_SIDE};
+    color: {C_FG};
+    border: 1px solid {C_BORDER};
     border-radius: 4px;
     padding: 8px;
-}
-QListWidget::item:selected {
-    background-color: #094771;
-    color: white;
-}
-QTextEdit {
-    background-color: #1e1e1e;
+    selection-background-color: {C_SEL};
+}}
+QLineEdit:focus {{
+    border: 1px solid {C_ACCENT};
+}}
+QPushButton {{
+    background-color: {C_LINE};
+    color: {C_ACCENT};
+    border: 1px solid {C_BORDER};
+    border-radius: 5px;
+    padding: 8px 16px;
+    font-weight: bold;
+    text-transform: uppercase;
+}}
+QPushButton:hover {{
+    background-color: {C_SEL};
+    border: 1px solid {C_ACCENT};
     color: #ffffff;
-    border: 1px solid #3e3e42;
-    selection-background-color: #264f78;
-}
-QLineEdit {
-    background-color: #2d2d30;
-    color: #ffffff;
-    border: 1px solid #3e3e42;
-    padding: 8px;
+}}
+QPushButton:pressed {{
+    background-color: {C_ACCENT};
+    color: {C_BG};
+}}
+QToolBar {{
+    background-color: {C_BG};
+    border-bottom: 2px solid {C_LINE};
+    spacing: 10px;
+    padding: 5px;
+}}
+QToolButton {{
+    background-color: transparent;
+    border: 1px solid transparent;
     border-radius: 4px;
-}
-QPushButton {
-    background-color: #3e3e42;
-    color: white;
-    border: none;
-    padding: 10px 16px;
-    border-radius: 4px;
-}
-QPushButton:hover {
-    background-color: #505050;
-}
-QPushButton:pressed {
-    background-color: #007acc;
-}
-QToolBar {
-    background-color: #2d2d30;
-    border-bottom: 1px solid #3e3e42;
-    spacing: 8px;
-}
-QToolButton {
-    background-color: transparent; 
-    border-radius: 4px; 
     padding: 6px;
-}
-QToolButton:hover {
-    background-color: #3e3e42;
-}
-QToolButton:disabled {
-    color: #555555;
-}
-QMenuBar {
-    background-color: #2d2d30;
-    color: #ffffff;
-    font-size: 14pt;
-}
-QMenuBar::item {
-    padding: 8px 12px;
-}
-QMenuBar::item:selected {
-    background-color: #3e3e42;
-}
-QMenu {
-    background-color: #2d2d30;
-    border: 1px solid #3e3e42;
-    font-size: 14pt;
-}
-QMenu::item:selected {
-    background-color: #094771;
-}
-QStatusBar {
-    background-color: #2d2d30;
-    color: #e0e0e0;
-    border-top: 1px solid #3e3e42;
-}
-QLabel { color: #e0e0e0; }
+    color: {C_FG};
+}}
+QToolButton:hover {{
+    background-color: {C_LINE};
+    border: 1px solid {C_BORDER};
+}}
+QToolButton:pressed {{
+    background-color: {C_SEL};
+}}
+QMenuBar {{
+    background-color: {C_SIDE};
+    color: {C_FG};
+    border-bottom: 1px solid {C_BORDER};
+}}
+QMenuBar::item:selected {{
+    background-color: {C_SEL};
+}}
+QMenu {{
+    background-color: {C_SIDE};
+    border: 1px solid {C_ACCENT};
+    padding: 5px;
+}}
+QMenu::item {{
+    padding: 8px 20px;
+    border-radius: 4px;
+}}
+QMenu::item:selected {{
+    background-color: {C_SEL};
+}}
+QStatusBar {{
+    background-color: {C_SIDE};
+    color: {C_FG};
+    border-top: 1px solid {C_ACCENT};
+}}
+QLabel {{ 
+    color: {C_FG}; 
+    font-family: {FONT_FAMILY};
+}}
+QScrollBar:vertical {{
+    border: none;
+    background: {C_BG};
+    width: 10px;
+    margin: 0px;
+}}
+QScrollBar::handle:vertical {{
+    background: {C_BORDER};
+    min-height: 20px;
+    border-radius: 5px;
+}}
+QScrollBar::handle:vertical:hover {{
+    background: {C_ACCENT};
+}}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+    height: 0px;
+}}
 """
 
 # =============================================================================
@@ -136,22 +198,28 @@ class InsertLinkDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
         self.setWindowTitle("Insertar Hipervínculo")
-        self.resize(500, 200)
+        self.resize(600, 250)
         self.result_data = None
         self.init_ui()
 
     def init_ui(self):
         layout = QGridLayout()
-        layout.setVerticalSpacing(15)
-        lbl_text = QLabel("Texto a mostrar:")
+        layout.setVerticalSpacing(20)
+        
+        lbl_text = QLabel("TEXTO A MOSTRAR:")
         self.txt_text = QLineEdit()
-        lbl_url = QLabel("Dirección (URL):")
+        lbl_url = QLabel("DIRECCIÓN (URL):")
         self.txt_url = QLineEdit()
         self.txt_url.setPlaceholderText("https://... o model://...")
-        btn_ok = QPushButton("Insertar")
+        
+        btn_ok = QPushButton("INSERTAR")
+        btn_ok.setStyleSheet(f"color: {C_SUCCESS}; border-color: {C_SUCCESS};")
         btn_ok.clicked.connect(self.on_ok)
-        btn_cancel = QPushButton("Cancelar")
+        
+        btn_cancel = QPushButton("CANCELAR")
+        btn_cancel.setStyleSheet(f"color: {C_URGENT}; border-color: {C_URGENT};")
         btn_cancel.clicked.connect(self.reject)
+        
         layout.addWidget(lbl_text, 0, 0)
         layout.addWidget(self.txt_text, 0, 1)
         layout.addWidget(lbl_url, 1, 0)
@@ -170,14 +238,13 @@ class InsertLinkDialog(QDialog):
 class EnhancedLinkHighlighter(QSyntaxHighlighter):
     def __init__(self, parent=None):
         super().__init__(parent)
-        # Formato Links Internos (##modelo##) -> TURQUESA
         self.internal_link_format = QTextCharFormat()
-        self.internal_link_format.setForeground(QColor("#4EC9B0")) 
+        self.internal_link_format.setForeground(QColor(C_ACCENT)) 
         self.internal_link_format.setFontUnderline(True)
         self.internal_link_format.setFontWeight(QFont.Weight.Bold)
-        # Formato Links Externos (https://) -> VERDE
+        
         self.external_link_format = QTextCharFormat()
-        self.external_link_format.setForeground(QColor("#6A9955")) 
+        self.external_link_format.setForeground(QColor(C_SUCCESS)) 
         self.external_link_format.setFontUnderline(True)
         self.external_link_format.setFontWeight(QFont.Weight.Bold)
         
@@ -201,11 +268,11 @@ class SmartLinkTextEdit(QTextEdit):
         self.highlighter = EnhancedLinkHighlighter(self.document())
         self.setMouseTracking(True)
         self.viewport().setMouseTracking(True)
-        # Estilo para links HTML reales
-        self.document().setDefaultStyleSheet("a { text-decoration: underline; color: #4EC9B0; font-weight: bold; }")
+        self.document().setDefaultStyleSheet(f"a {{ text-decoration: underline; color: {C_ACCENT}; font-weight: bold; }}")
         
         font = self.font()
-        font.setPointSize(14)
+        font.setPointSize(16)
+        font.setFamily("Cascadia Code")
         self.setFont(font)
 
     def keyReleaseEvent(self, event):
@@ -224,10 +291,9 @@ class SmartLinkTextEdit(QTextEdit):
             full_tag = match.group(0)
             cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.KeepAnchor, len(full_tag))
             cursor.removeSelectedText()
-            # Convertir a HTML Link interno
             html = f'<a href="model://{model_name}">{model_name}</a>&nbsp;'
             cursor.insertHtml(html)
-            self.setFontPointSize(14)
+            self.setFontPointSize(16)
 
     def mouseMoveEvent(self, event):
         if self.anchorAt(event.pos()) or self.get_link_at_pos(event.pos()):
@@ -238,13 +304,10 @@ class SmartLinkTextEdit(QTextEdit):
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            # Prioridad 1: Anchor HTML
             url = self.anchorAt(event.pos())
             if url:
                 self.parent_window.handle_link(url)
                 return 
-            
-            # Prioridad 2: Texto Link (## o http)
             link_info = self.get_link_at_pos(event.pos())
             if link_info:
                 l_type, l_target = link_info
@@ -277,20 +340,21 @@ class FindReplaceDialog(QDialog):
         self.editor = editor
         self.setWindowTitle("Buscar y Reemplazar")
         self.setWindowFlags(Qt.WindowType.Window) 
-        self.resize(500, 200)
+        self.resize(600, 250)
         self.init_ui()
 
     def init_ui(self):
         layout = QGridLayout()
         layout.setVerticalSpacing(15)
-        self.lbl_find = QLabel("Buscar:")
+        self.lbl_find = QLabel("BUSCAR:")
         self.txt_find = QLineEdit()
-        self.lbl_rep = QLabel("Reemplazar:")
+        self.lbl_rep = QLabel("REEMPLAZAR CON:")
         self.txt_rep = QLineEdit()
-        self.chk_case = QCheckBox("Mayús/Minús")
-        self.btn_find = QPushButton("Buscar Siguiente")
-        self.btn_rep = QPushButton("Reemplazar")
-        self.btn_all = QPushButton("Reemplazar Todo")
+        self.chk_case = QCheckBox("Coincidir Mayús/Minús")
+        
+        self.btn_find = QPushButton("BUSCAR SIGUIENTE")
+        self.btn_rep = QPushButton("REEMPLAZAR")
+        self.btn_all = QPushButton("REEMPLAZAR TODO")
         
         self.btn_find.clicked.connect(self.find_next)
         self.btn_rep.clicked.connect(self.replace_one)
@@ -359,18 +423,18 @@ class ModelManagerApp(QMainWindow):
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
 
-        # --- CAMBIO: Detección de Argumentos (Abrir con...) ---
+        # Argumentos
         if len(sys.argv) > 1:
             external_file = sys.argv[1]
             if os.path.exists(external_file):
-                self.import_and_open_external(external_file)
+                self.open_external_file(external_file)
 
     def ensure_directory(self):
         if not os.path.exists(MODELS_DIR): os.makedirs(MODELS_DIR)
 
     def init_ui(self):
         self.setWindowTitle(APP_NAME)
-        self.resize(1500, 900) 
+        self.resize(1600, 950) 
         
         central = QWidget()
         self.setCentralWidget(central)
@@ -382,11 +446,11 @@ class ModelManagerApp(QMainWindow):
         left_l = QVBoxLayout(left_p)
         left_l.setContentsMargins(0,0,0,0)
         self.search_bar = QLineEdit()
-        self.search_bar.setPlaceholderText("🔍 Filtrar por nombre o contenido...")
+        self.search_bar.setPlaceholderText("🔍 Filtrar...")
         self.search_bar.textChanged.connect(self.filter_models)
         self.list_widget = QListWidget()
         self.list_widget.currentItemChanged.connect(self.on_model_selected)
-        btn_ref = QPushButton("🔄 Refrescar")
+        btn_ref = QPushButton("🔄 REFRESCAR")
         btn_ref.clicked.connect(self.load_models)
         left_l.addWidget(self.search_bar)
         left_l.addWidget(self.list_widget)
@@ -407,15 +471,15 @@ class ModelManagerApp(QMainWindow):
         
         # BOTONERA
         bot_layout = QHBoxLayout()
-        self.btn_save = QPushButton("Guardar (Ctrl+S)")
+        self.btn_save = QPushButton("GUARDAR (CTRL+S)")
         self.btn_save.clicked.connect(self.save_model)
         
-        self.btn_delete = QPushButton("Eliminar")
-        self.btn_delete.setStyleSheet("background-color: #8B0000; font-weight: bold;")
+        self.btn_delete = QPushButton("ELIMINAR")
+        self.btn_delete.setStyleSheet(f"color: {C_URGENT}; border: 1px solid {C_URGENT};")
         self.btn_delete.clicked.connect(self.delete_model)
         
         self.btn_copy = QPushButton("📋 COPIAR TODO")
-        self.btn_copy.setStyleSheet("background-color: #006400; font-weight: bold;")
+        self.btn_copy.setStyleSheet(f"color: {C_SUCCESS}; border: 1px solid {C_SUCCESS};")
         self.btn_copy.clicked.connect(self.copy_all)
         
         bot_layout.addWidget(self.btn_save)
@@ -431,9 +495,11 @@ class ModelManagerApp(QMainWindow):
         splitter.setSizes([350, 1150]) 
         layout.addWidget(splitter)
         
-        self.btn_save.setShortcut("Ctrl+S")
+        # FIX: Eliminamos el setShortcut del botón para evitar conflicto con el menú
+        # self.btn_save.setShortcut("Ctrl+S") 
+        
         self.status_bar = self.statusBar()
-        self.lbl_stats = QLabel("L: 0 | C: 0")
+        self.lbl_stats = QLabel("LINEAS: 0 | CARACTERES: 0")
         self.status_bar.addPermanentWidget(self.lbl_stats)
 
     def add_menu_action(self, menu, text, slot, shortcut=None):
@@ -444,26 +510,28 @@ class ModelManagerApp(QMainWindow):
 
     def create_menus(self):
         mb = self.menuBar()
-        m_file = mb.addMenu("&Archivo")
+        m_file = mb.addMenu("&ARCHIVO")
         self.add_menu_action(m_file, "Nuevo", self.new_model, "Ctrl+N")
+        # El atajo Ctrl+S vive aquí ahora
         self.add_menu_action(m_file, "Guardar", self.save_model, "Ctrl+S")
         m_file.addSeparator()
+        self.add_menu_action(m_file, "Abrir...", self.open_any_file) # CAMBIO: Abrir
         self.add_menu_action(m_file, "Importar Masivo", self.mass_import)
         m_file.addSeparator()
         self.add_menu_action(m_file, "Salir", self.close)
         
-        m_edit = mb.addMenu("&Editar")
+        m_edit = mb.addMenu("&EDICIÓN")
         self.add_menu_action(m_edit, "Buscar...", self.show_find, "Ctrl+F")
         m_edit.addSeparator()
         self.add_menu_action(m_edit, "Deshacer", self.editor.undo, "Ctrl+Z")
         self.add_menu_action(m_edit, "Rehacer", self.editor.redo, "Ctrl+Y")
         
-        m_ins = mb.addMenu("&Insertar")
+        m_ins = mb.addMenu("&INSERTAR")
         self.add_menu_action(m_ins, "Imagen...", self.insert_image)
         self.add_menu_action(m_ins, "Tabla...", self.insert_table)
         self.add_menu_action(m_ins, "Hipervínculo...", self.insert_hyperlink)
         
-        m_fmt = mb.addMenu("&Formato")
+        m_fmt = mb.addMenu("&FORMATO")
         m_align = m_fmt.addMenu("Alineación")
         self.add_menu_action(m_align, "Izquierda", lambda: self.editor.setAlignment(Qt.AlignmentFlag.AlignLeft))
         self.add_menu_action(m_align, "Centro", lambda: self.editor.setAlignment(Qt.AlignmentFlag.AlignCenter))
@@ -492,7 +560,7 @@ class ModelManagerApp(QMainWindow):
         self.toolbar.addWidget(self.font_box)
         
         self.size_box = QSpinBox()
-        self.size_box.setValue(14)
+        self.size_box.setValue(16)
         self.size_box.valueChanged.connect(lambda s: self.editor.setFontPointSize(s))
         self.toolbar.addWidget(self.size_box)
         self.toolbar.addSeparator()
@@ -515,70 +583,15 @@ class ModelManagerApp(QMainWindow):
         tb_act("><", lambda: self.editor.setAlignment(Qt.AlignmentFlag.AlignCenter))
         tb_act(">|", lambda: self.editor.setAlignment(Qt.AlignmentFlag.AlignRight))
         tb_act("|=|", lambda: self.editor.setAlignment(Qt.AlignmentFlag.AlignJustify))
+        
+        self.toolbar.addSeparator()
+        
+        # CAMBIO: Botón ABRIR reemplaza Importar
+        self.btn_open = QAction("📂 ABRIR", self)
+        self.btn_open.triggered.connect(self.open_any_file)
+        self.toolbar.addAction(self.btn_open)
 
-    # --- NUEVA FUNCIÓN: IMPORTAR MD EXTERNO Y CONVERTIR A VISUAL ---
-    def import_and_open_external(self, filepath):
-        try:
-            # 1. Leer MD puro
-            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-                md_content = f.read()
-            
-            # 2. Traducción al Vuelo (MD -> HTML Visual)
-            html_visual = self.parse_markdown_visual(md_content)
-            
-            # 3. Preparar Guardado en Maletin
-            filename = os.path.basename(filepath)
-            # Cambiar extensión a .rtf (interno)
-            filename = os.path.splitext(filename)[0] + ".rtf"
-            target_path = os.path.join(MODELS_DIR, filename)
-            
-            # 4. Cargar en Editor
-            self.editor.setHtml(html_visual)
-            
-            # 5. Establecer ruta futura (sin guardar aun, o guardando directo)
-            # Para evitar confusiones, lo guardamos ya en el maletin.
-            self.current_file_path = target_path
-            
-            # Verificar si ya existe para no sobrescribir sin aviso?
-            # En este caso asumimos comportamiento de "Importar y Abrir"
-            self.save_model() # Guarda el RTF en Maletin
-            
-            self.load_models() # Refrescar lista
-            self.status_bar.showMessage(f"Importado y abierto: {filename}")
-            
-            # Seleccionar en la lista visualmente
-            items = self.list_widget.findItems(filename, Qt.MatchFlag.MatchFixedString)
-            if items:
-                self.list_widget.setCurrentItem(items[0])
-
-        except Exception as e:
-            QMessageBox.critical(self, "Error de Importación", f"No se pudo importar el MD:\n{e}")
-
-    def parse_markdown_visual(self, text):
-        """Convierte Markdown básico a HTML para el RichEdit"""
-        # Escapar HTML existente en el texto para que se vea literal
-        text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        
-        # 1. Headers (# Titulo -> h1)
-        text = re.sub(r'^# (.*?)$', r'<h1 style="font-size:24pt; font-weight:600; color:#4EC9B0;">\1</h1>', text, flags=re.MULTILINE)
-        text = re.sub(r'^## (.*?)$', r'<h2 style="font-size:20pt; font-weight:600; color:#4EC9B0;">\1</h2>', text, flags=re.MULTILINE)
-        text = re.sub(r'^### (.*?)$', r'<h3 style="font-size:16pt; font-weight:600; color:#4EC9B0;">\1</h3>', text, flags=re.MULTILINE)
-        
-        # 2. Bold (**texto**)
-        text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
-        
-        # 3. Italic (*texto*)
-        text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)
-        
-        # 4. WikiLinks [[Modelo]] -> <a href="model://Modelo">Modelo</a>
-        text = re.sub(r'\[\[(.*?)\]\]', r'<a href="model://\1" style="color:#4EC9B0; font-weight:bold; text-decoration:underline;">\1</a>', text)
-        
-        # 5. Saltos de línea (MD usa \n, HTML usa <br>)
-        text = text.replace('\n', '<br>')
-        
-        return text
-
-    # --- RESTO DE LÓGICA ---
+    # --- Lógica de Archivos y Eventos ---
     def add_to_history(self, filepath):
         if self.is_navigating: return
         if self.history and self.history_index >= 0:
@@ -649,6 +662,69 @@ class ModelManagerApp(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Error abriendo: {e}")
 
+    # --- NUEVA FUNCIÓN: ABRIR CUALQUIER ARCHIVO ---
+    def open_any_file(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Abrir Archivo", "", "Archivos (*.rtf *.md *.txt);;Todos (*.*)")
+        if path:
+            self.open_external_file(path)
+
+    def open_external_file(self, filepath):
+        try:
+            # 1. Detectar tipo
+            ext = os.path.splitext(filepath)[1].lower()
+            content = ""
+            
+            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                raw_text = f.read()
+
+            if ext == '.md':
+                # Convertir MD a HTML Visual
+                content = self.parse_markdown_visual(raw_text)
+            else:
+                # Asumir RTF o Texto Plano
+                content = raw_text
+
+            # 2. Configurar Ruta de Destino en Maletín
+            filename = os.path.basename(filepath)
+            # Forzar extensión .rtf para guardarlo en nuestro formato
+            filename = os.path.splitext(filename)[0] + ".rtf"
+            target_path = os.path.join(MODELS_DIR, filename)
+            
+            # 3. Cargar en Editor
+            if "{\\rtf" in content or "<html" in content or ext == '.md':
+                self.editor.setHtml(content)
+            else:
+                self.editor.setPlainText(content)
+            
+            self.editor.setFontPointSize(16)
+            
+            # 4. Establecer como archivo actual (apunta al Maletin)
+            self.current_file_path = target_path
+            
+            # 5. Guardar automáticamente en el Maletin (Importación)
+            self.save_model() 
+            self.load_models() 
+            
+            self.status_bar.showMessage(f"Abierto e Importado: {filename}")
+            
+            # Seleccionar en lista
+            items = self.list_widget.findItems(filename, Qt.MatchFlag.MatchFixedString)
+            if items: self.list_widget.setCurrentItem(items[0])
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo abrir:\n{e}")
+
+    def parse_markdown_visual(self, text):
+        # Conversor simple MD -> HTML para visualización
+        text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        text = re.sub(r'^# (.*?)$', r'<h1 style="font-size:24pt; color:#7aa2f7;">\1</h1>', text, flags=re.MULTILINE)
+        text = re.sub(r'^## (.*?)$', r'<h2 style="font-size:20pt; color:#7aa2f7;">\1</h2>', text, flags=re.MULTILINE)
+        text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
+        text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)
+        text = re.sub(r'\[\[(.*?)\]\]', r'<a href="model://\1" style="color:#7dcfff;">\1</a>', text)
+        text = text.replace('\n', '<br>')
+        return text
+
     def create_new(self, name):
         filename = f"{name}.rtf"
         path = os.path.join(MODELS_DIR, filename)
@@ -711,9 +787,9 @@ class ModelManagerApp(QMainWindow):
             self.editor.document().setModified(False)
             self.status_bar.showMessage(f"Archivo: {os.path.basename(path)}")
             
-            self.editor.setFontPointSize(14)
+            self.editor.setFontPointSize(16)
             self.size_box.blockSignals(True)
-            self.size_box.setValue(14)
+            self.size_box.setValue(16)
             self.size_box.blockSignals(False)
             
             self.update_stats()
@@ -749,7 +825,7 @@ class ModelManagerApp(QMainWindow):
             self.editor.clear()
             self.current_file_path = None
             self.list_widget.clearSelection()
-            self.editor.setFontPointSize(14) 
+            self.editor.setFontPointSize(16) 
 
     def delete_model(self):
         if not self.current_file_path: return
@@ -776,7 +852,7 @@ class ModelManagerApp(QMainWindow):
                     if not os.path.exists(rp):
                         with open(p, 'r', encoding='utf-8', errors='ignore') as fi: t=fi.read()
                         with open(rp, 'w', encoding='utf-8') as fo: 
-                            fo.write(f'<html><body style="font-size:14pt;"><pre>{t}</pre></body></html>')
+                            fo.write(f'<html><body style="font-size:16pt;"><pre>{t}</pre></body></html>')
                         c+=1
             self.load_models()
             QMessageBox.information(self,"Info",f"Hecho: {c}")
@@ -808,7 +884,7 @@ class ModelManagerApp(QMainWindow):
         c,ok2=QInputDialog.getInt(self,"C","C:",2)
         if ok1 and ok2:
             fmt = QTextTableFormat()
-            fmt.setBorder(1); fmt.setBorderBrush(QColor("white")); fmt.setCellPadding(5)
+            fmt.setBorder(1); fmt.setBorderBrush(QColor(C_BORDER)); fmt.setCellPadding(5)
             self.editor.textCursor().insertTable(r, c, fmt)
 
     def insert_hyperlink(self):
@@ -832,12 +908,12 @@ class ModelManagerApp(QMainWindow):
 
     def update_stats(self):
         t = self.editor.toPlainText()
-        self.lbl_stats.setText(f"Líneas: {self.editor.document().blockCount()} | Caracteres: {len(t)}")
+        self.lbl_stats.setText(f"LÍNEAS: {self.editor.document().blockCount()} | CARACTERES: {len(t)}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
-    app.setStyleSheet(DARK_STYLESHEET)
+    app.setStyleSheet(TOKYO_STYLESHEET)
     w = ModelManagerApp()
     w.show()
     sys.exit(app.exec())
