@@ -1,26 +1,23 @@
-# Byte-compiled / optimized / DLL files
+# --- Python ---
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Caches
-.pytest_cache/
-.mypy_cache/
-
-# Virtual Environments
 venv/
 env/
-.env
 
-# IDEs
+# --- PyInstaller (Compilación) ---
+# Esto evita subir el EXE y las carpetas temporales
+build/
+dist/
+*.spec
+
+# --- IDEs / Editores ---
 .vscode/
 .idea/
 
-# Logs
-*.log
-
-# --- MAD NOTES SPECIFIC ---
-# Ignorar todos los archivos dentro de modelos
+# --- MAD NOTES ---
+# Ignorar todos los archivos dentro de la carpeta modelos (tus datos privados)
 modelos/*
-# ...pero mantener la carpeta 'modelos' vacía en el repo (truco gitkeep)
+
+# EXCEPCIÓN: Mantener la carpeta 'modelos' vacía en el repo
 !modelos/.gitkeep

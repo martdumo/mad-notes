@@ -9,34 +9,41 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QGridLayout, QCheckBox)
 from PyQt6.QtGui import (QAction, QIcon, QFont, QColor, QTextCursor, 
                          QTextListFormat, QTextTableFormat, QTextCharFormat,
-                         QTextBlockFormat, QTextDocument, QPixmap, QDesktopServices)
-from PyQt6.QtCore import Qt, QSize, QUrl
+                         QTextBlockFormat, QTextDocument, QPixmap, QDesktopServices,
+                         QSyntaxHighlighter)
+from PyQt6.QtCore import Qt, QSize, QUrl, QRegularExpression
 
 # =============================================================================
 # CONFIGURACIÓN
 # =============================================================================
-APP_NAME = "Gestor de Modelos Pro (One Click)"
-MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "modelos")
+APP_NAME = "Gestor de Modelos Pro (Complete Tools)"
 
+if getattr(sys, 'frozen', False):
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+MODELS_DIR = os.path.join(BASE_DIR, "modelos")
+
+# TAMAÑO DE FUENTE BASE: 14pt
 DARK_STYLESHEET = """
 QMainWindow, QWidget, QDialog {
     background-color: #1e1e1e;
     color: #e0e0e0;
     font-family: 'Segoe UI', sans-serif;
-    font-size: 10pt;
+    font-size: 14pt;
 }
 QListWidget {
     background-color: #252526;
     color: #f0f0f0;
     border: 1px solid #3e3e42;
     border-radius: 4px;
-    padding: 5px;
+    padding: 8px;
 }
 QListWidget::item:selected {
     background-color: #094771;
     color: white;
 }
-/* Editor y Links */
 QTextEdit {
     background-color: #1e1e1e;
     color: #ffffff;
@@ -47,14 +54,14 @@ QLineEdit {
     background-color: #2d2d30;
     color: #ffffff;
     border: 1px solid #3e3e42;
-    padding: 5px;
+    padding: 8px;
     border-radius: 4px;
 }
 QPushButton {
     background-color: #3e3e42;
     color: white;
     border: none;
-    padding: 6px 12px;
+    padding: 10px 16px;
     border-radius: 4px;
 }
 QPushButton:hover {
@@ -66,14 +73,26 @@ QPushButton:pressed {
 QToolBar {
     background-color: #2d2d30;
     border-bottom: 1px solid #3e3e42;
-    spacing: 5px;
+    spacing: 8px;
+}
+QToolButton {
+    background-color: transparent; 
+    border-radius: 4px; 
+    padding: 6px;
 }
 QToolButton:hover {
     background-color: #3e3e42;
 }
+QToolButton:disabled {
+    color: #555555;
+}
 QMenuBar {
     background-color: #2d2d30;
     color: #ffffff;
+    font-size: 14pt;
+}
+QMenuBar::item {
+    padding: 8px 12px;
 }
 QMenuBar::item:selected {
     background-color: #3e3e42;
@@ -81,6 +100,7 @@ QMenuBar::item:selected {
 QMenu {
     background-color: #2d2d30;
     border: 1px solid #3e3e42;
+    font-size: 14pt;
 }
 QMenu::item:selected {
     background-color: #094771;
@@ -100,12 +120,14 @@ class InsertLinkDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
         self.setWindowTitle("Insertar Hipervínculo")
-        self.resize(400, 150)
+        self.resize(500, 200)
         self.result_data = None
         self.init_ui()
 
     def init_ui(self):
         layout = QGridLayout()
+        layout.setVerticalSpacing(15)
+        
         lbl_text = QLabel("Texto a mostrar:")
         self.txt_text = QLineEdit()
         lbl_url = QLabel("Dirección (URL):")
@@ -133,57 +155,106 @@ class InsertLinkDialog(QDialog):
             QMessageBox.warning(self, "Error", "Complete ambos campos.")
 
 # =============================================================================
-# EDITOR INTELIGENTE (CLICK SIMPLE)
+# RESALTADOR DE SINTAXIS (LINKS)
+# =============================================================================
+class EnhancedLinkHighlighter(QSyntaxHighlighter):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.internal_link_format = QTextCharFormat()
+        self.internal_link_format.setForeground(QColor("#4EC9B0")) 
+        self.internal_link_format.setFontUnderline(True)
+        self.internal_link_format.setFontWeight(QFont.Weight.Bold)
+        self.external_link_format = QTextCharFormat()
+        self.external_link_format.setForeground(QColor("#6A9955")) 
+        self.external_link_format.setFontUnderline(True)
+        self.external_link_format.setFontWeight(QFont.Weight.Bold)
+        self.internal_pattern = QRegularExpression(r"@@[\w\.-]+")
+        self.external_pattern = QRegularExpression(r"https?://[\w./?=&#-]+")
+
+    def highlightBlock(self, text):
+        match_iterator = self.external_pattern.globalMatch(text)
+        while match_iterator.hasNext():
+            match = match_iterator.next()
+            self.setFormat(match.capturedStart(), match.capturedLength(), self.external_link_format)
+        match_iterator = self.internal_pattern.globalMatch(text)
+        while match_iterator.hasNext():
+            match = match_iterator.next()
+            self.setFormat(match.capturedStart(), match.capturedLength(), self.internal_link_format)
+
+# =============================================================================
+# EDITOR INTELIGENTE
 # =============================================================================
 class SmartLinkTextEdit(QTextEdit):
     def __init__(self, parent_window):
         super().__init__()
         self.parent_window = parent_window
+        self.highlighter = EnhancedLinkHighlighter(self.document())
         self.setMouseTracking(True)
-        # Estilo CSS para links dentro del editor
+        self.viewport().setMouseTracking(True)
         self.document().setDefaultStyleSheet("a { text-decoration: underline; color: #4EC9B0; font-weight: bold; }")
+        
+        # FUENTE INICIAL (14pt)
+        font = self.font()
+        font.setPointSize(14)
+        self.setFont(font)
 
     def keyReleaseEvent(self, event):
         super().keyReleaseEvent(event)
-        # Detectar cierre de tag ##
-        if event.text() == "#":
-            self.check_magic_tag()
+        if event.text() == "#": self.check_magic_tag()
 
     def check_magic_tag(self):
         cursor = self.textCursor()
         block_text = cursor.block().text()
         pos_in_block = cursor.positionInBlock()
         text_before = block_text[:pos_in_block]
-        
-        # Detectar ##modelo##
         match = re.search(r"##([\w\.-]+)##$", text_before)
         if match:
             model_name = match.group(1)
             full_tag = match.group(0)
-            
-            # Borrar ##tag## e insertar Link HTML real
             cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.KeepAnchor, len(full_tag))
             cursor.removeSelectedText()
             html = f'<a href="model://{model_name}">{model_name}</a>&nbsp;'
             cursor.insertHtml(html)
+            self.setFontPointSize(14)
 
     def mouseMoveEvent(self, event):
-        # Cambiar cursor a MANO siempre que haya un link (sin apretar Ctrl)
-        if self.anchorAt(event.pos()):
+        if self.anchorAt(event.pos()) or self.get_link_at_pos(event.pos()):
             self.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
         else:
             self.viewport().setCursor(Qt.CursorShape.IBeamCursor)
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        # CLICK SIMPLE: Si es click izquierdo y hay link, abrirlo.
         if event.button() == Qt.MouseButton.LeftButton:
             url = self.anchorAt(event.pos())
             if url:
                 self.parent_window.handle_link(url)
-                return # Detener procesamiento (para no mover el cursor de texto)
-        
+                return 
+            link_info = self.get_link_at_pos(event.pos())
+            if link_info:
+                l_type, l_target = link_info
+                if l_type == "internal":
+                    self.parent_window.handle_internal_link(l_target)
+                elif l_type == "external":
+                    self.parent_window.handle_external_link(l_target)
+                return
         super().mouseReleaseEvent(event)
+
+    def get_link_at_pos(self, pos):
+        cursor = self.cursorForPosition(pos)
+        block_text = cursor.block().text()
+        pos_in_block = cursor.positionInBlock()
+        internal_regex = re.compile(r"@@[\w\.-]+")
+        for match in internal_regex.finditer(block_text):
+            start, end = match.span()
+            if start <= pos_in_block <= end:
+                return ("internal", match.group()[2:]) 
+        external_regex = re.compile(r"https?://[\w./?=&#-]+")
+        for match in external_regex.finditer(block_text):
+            start, end = match.span()
+            if start <= pos_in_block <= end:
+                return ("external", match.group())
+        return None
 
 # =============================================================================
 # DIÁLOGO BUSCAR
@@ -194,11 +265,13 @@ class FindReplaceDialog(QDialog):
         self.editor = editor
         self.setWindowTitle("Buscar y Reemplazar")
         self.setWindowFlags(Qt.WindowType.Window) 
-        self.resize(400, 150)
+        self.resize(500, 200)
         self.init_ui()
 
     def init_ui(self):
         layout = QGridLayout()
+        layout.setVerticalSpacing(15)
+        
         self.lbl_find = QLabel("Buscar:")
         self.txt_find = QLineEdit()
         self.lbl_rep = QLabel("Reemplazar:")
@@ -263,22 +336,31 @@ class ModelManagerApp(QMainWindow):
         self.current_file_path = None
         self.all_files = [] 
         self.find_dialog = None
+        self.history = []        
+        self.history_index = -1  
+        self.is_navigating = False
+        
         self.init_ui()
         self.ensure_directory()
         self.load_models()
+
+        icon_path = os.path.join(BASE_DIR, "app.ico")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
 
     def ensure_directory(self):
         if not os.path.exists(MODELS_DIR): os.makedirs(MODELS_DIR)
 
     def init_ui(self):
         self.setWindowTitle(APP_NAME)
-        self.resize(1200, 750)
+        self.resize(1300, 850) 
+        
         central = QWidget()
         self.setCentralWidget(central)
         layout = QHBoxLayout(central)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         
-        # IZQUIERDA
+        # --- IZQUIERDA ---
         left_p = QWidget()
         left_l = QVBoxLayout(left_p)
         left_l.setContentsMargins(0,0,0,0)
@@ -293,7 +375,7 @@ class ModelManagerApp(QMainWindow):
         left_l.addWidget(self.list_widget)
         left_l.addWidget(btn_ref)
         
-        # DERECHA
+        # --- DERECHA ---
         right_p = QWidget()
         right_l = QVBoxLayout(right_p)
         right_l.setContentsMargins(0,0,0,0)
@@ -306,13 +388,22 @@ class ModelManagerApp(QMainWindow):
         self.setup_toolbar()
         self.create_menus()
         
+        # --- BOTONERA INFERIOR ---
         bot_layout = QHBoxLayout()
         self.btn_save = QPushButton("Guardar")
         self.btn_save.clicked.connect(self.save_model)
+        
+        # BOTÓN ELIMINAR (Agregado)
+        self.btn_delete = QPushButton("Eliminar")
+        self.btn_delete.setStyleSheet("background-color: #8B0000; font-weight: bold;")
+        self.btn_delete.clicked.connect(self.delete_model)
+        
         self.btn_copy = QPushButton("📋 COPIAR TODO")
         self.btn_copy.setStyleSheet("background-color: #006400; font-weight: bold;")
         self.btn_copy.clicked.connect(self.copy_all)
+        
         bot_layout.addWidget(self.btn_save)
+        bot_layout.addWidget(self.btn_delete) # En medio
         bot_layout.addWidget(self.btn_copy)
         
         right_l.addWidget(self.toolbar)
@@ -321,14 +412,13 @@ class ModelManagerApp(QMainWindow):
         
         splitter.addWidget(left_p)
         splitter.addWidget(right_p)
-        splitter.setSizes([250, 950])
+        splitter.setSizes([350, 950])
         layout.addWidget(splitter)
         
         self.status_bar = self.statusBar()
         self.lbl_stats = QLabel("L: 0 | C: 0")
         self.status_bar.addPermanentWidget(self.lbl_stats)
 
-    # --- HELPERS ---
     def add_menu_action(self, menu, text, slot, shortcut=None):
         a = QAction(text, self)
         if shortcut: a.setShortcut(shortcut)
@@ -368,11 +458,24 @@ class ModelManagerApp(QMainWindow):
         self.add_menu_action(m_list, "Numeración", lambda: self.editor.textCursor().createList(QTextListFormat.Style.ListDecimal))
 
     def setup_toolbar(self):
+        self.act_back = QAction("◀", self)
+        self.act_back.triggered.connect(self.go_back)
+        self.act_back.setEnabled(False) 
+        self.toolbar.addAction(self.act_back)
+
+        self.act_fwd = QAction("▶", self)
+        self.act_fwd.triggered.connect(self.go_forward)
+        self.act_fwd.setEnabled(False) 
+        self.toolbar.addAction(self.act_fwd)
+
+        self.toolbar.addSeparator()
+
         self.font_box = QFontComboBox()
         self.font_box.currentFontChanged.connect(self.editor.setCurrentFont)
         self.toolbar.addWidget(self.font_box)
+        
         self.size_box = QSpinBox()
-        self.size_box.setValue(10)
+        self.size_box.setValue(14)
         self.size_box.valueChanged.connect(lambda s: self.editor.setFontPointSize(s))
         self.toolbar.addWidget(self.size_box)
         self.toolbar.addSeparator()
@@ -389,14 +492,50 @@ class ModelManagerApp(QMainWindow):
         self.toolbar.addSeparator()
         tb_act("🎨", self.set_color)
         tb_act("🖍️", self.set_bg)
+        
+        self.toolbar.addSeparator()
+        
+        # --- NUEVOS BOTONES DE ALINEACIÓN ---
+        tb_act("|<", lambda: self.editor.setAlignment(Qt.AlignmentFlag.AlignLeft))
+        tb_act("><", lambda: self.editor.setAlignment(Qt.AlignmentFlag.AlignCenter))
+        tb_act(">|", lambda: self.editor.setAlignment(Qt.AlignmentFlag.AlignRight))
+        tb_act("|=|", lambda: self.editor.setAlignment(Qt.AlignmentFlag.AlignJustify))
 
-    # --- MANEJO DE LINKS ---
+    def add_to_history(self, filepath):
+        if self.is_navigating: return
+        if self.history and self.history_index >= 0:
+            if self.history[self.history_index] == filepath: return
+        self.history = self.history[:self.history_index + 1]
+        self.history.append(filepath)
+        self.history_index += 1
+        self.update_nav_buttons()
+
+    def go_back(self):
+        if self.history_index > 0:
+            self.history_index -= 1
+            path = self.history[self.history_index]
+            self.is_navigating = True
+            self.load_file(path) 
+            self.is_navigating = False
+            self.update_nav_buttons()
+
+    def go_forward(self):
+        if self.history_index < len(self.history) - 1:
+            self.history_index += 1
+            path = self.history[self.history_index]
+            self.is_navigating = True
+            self.load_file(path)
+            self.is_navigating = False
+            self.update_nav_buttons()
+
+    def update_nav_buttons(self):
+        self.act_back.setEnabled(self.history_index > 0)
+        self.act_fwd.setEnabled(self.history_index < len(self.history) - 1)
+
     def handle_link(self, url):
-        # Interno (model://)
         if url.startswith("model://"):
             target = url.replace("model://", "")
             self.handle_internal_link(target)
-        # Externo (http/https/ftp)
         else:
             try:
                 QDesktopServices.openUrl(QUrl(url))
@@ -413,17 +552,24 @@ class ModelManagerApp(QMainWindow):
         
         if target_file:
             if self.check_save():
-                items = self.list_widget.findItems(target_file, Qt.MatchFlag.MatchFixedString)
-                if items:
-                    self.list_widget.setCurrentItem(items[0])
-                    self.editor.setFocus()
-                    self.status_bar.showMessage(f"Abriendo modelo: {target_file}")
+                path = os.path.join(MODELS_DIR, target_file)
+                self.load_file(path)
         else:
-            reply = QMessageBox.question(self, "Crear", f"Modelo '{target_name}' no existe. ¿Crear?",
-                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-            if reply == QMessageBox.StandardButton.Yes:
-                if self.check_save():
-                    self.create_new(target_name)
+            self.handle_external_link(target_name)
+
+    def handle_external_link(self, url):
+        try:
+            if not url.startswith(('http://', 'https://')):
+                reply = QMessageBox.question(self, "Crear", f"'{url}' no existe. ¿Crear Modelo?",
+                                           QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                if reply == QMessageBox.StandardButton.Yes:
+                    if self.check_save(): self.create_new(url)
+                return
+
+            QDesktopServices.openUrl(QUrl(url))
+            self.status_bar.showMessage(f"Abriendo URL: {url}")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Error abriendo: {e}")
 
     def create_new(self, name):
         filename = f"{name}.rtf"
@@ -431,14 +577,13 @@ class ModelManagerApp(QMainWindow):
         try:
             with open(path, 'w', encoding='utf-8') as f: f.write("")
             self.load_models()
-            items = self.list_widget.findItems(filename, Qt.MatchFlag.MatchFixedString)
-            if items: self.list_widget.setCurrentItem(items[0])
+            self.load_file(path)
+            self.status_bar.showMessage(f"Creado: {filename}")
         except Exception as e: QMessageBox.critical(self, "Error", str(e))
 
-    # --- LÓGICA PRINCIPAL ---
     def check_save(self):
         if self.editor.document().isModified():
-            r = QMessageBox.question(self, "Guardar", "Hay cambios. ¿Guardar?",
+            r = QMessageBox.question(self, "Guardar", "Cambios pendientes. ¿Guardar?",
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel)
             if r == QMessageBox.StandardButton.Cancel: return False
             if r == QMessageBox.StandardButton.Yes: self.save_model()
@@ -462,16 +607,36 @@ class ModelManagerApp(QMainWindow):
     def on_model_selected(self, curr, prev):
         if not curr: return
         path = os.path.join(MODELS_DIR, curr.text())
+        if path == self.current_file_path: return
+        if self.check_save(): self.load_file(path)
+
+    def load_file(self, path):
+        if not os.path.exists(path): return
         try:
             with open(path, 'r', encoding='utf-8', errors='ignore') as f:
                 c = f.read()
             if "{\\rtf" in c or "<html" in c: self.editor.setHtml(c)
             else: self.editor.setPlainText(c)
+            
             self.current_file_path = path
             self.editor.document().setModified(False)
             self.status_bar.showMessage(f"Archivo: {os.path.basename(path)}")
+            
+            self.editor.setFontPointSize(14)
+            self.size_box.blockSignals(True)
+            self.size_box.setValue(14)
+            self.size_box.blockSignals(False)
+            
             self.update_stats()
-        except: pass
+            
+            fn = os.path.basename(path)
+            items = self.list_widget.findItems(fn, Qt.MatchFlag.MatchFixedString)
+            if items:
+                self.list_widget.blockSignals(True)
+                self.list_widget.setCurrentItem(items[0])
+                self.list_widget.blockSignals(False)
+            self.add_to_history(path)
+        except Exception as e: print(f"Error: {e}")
 
     def save_model(self):
         if self.current_file_path:
@@ -483,15 +648,32 @@ class ModelManagerApp(QMainWindow):
             name, ok = QInputDialog.getText(self, "Guardar", "Nombre:")
             if ok and name:
                 if not name.lower().endswith('.rtf'): name+=".rtf"
-                self.current_file_path = os.path.join(MODELS_DIR, name)
+                path = os.path.join(MODELS_DIR, name)
+                self.current_file_path = path
                 self.save_model()
                 self.load_models()
+                self.add_to_history(path)
 
     def new_model(self):
         if self.check_save():
             self.editor.clear()
             self.current_file_path = None
             self.list_widget.clearSelection()
+            self.editor.setFontPointSize(14) 
+
+    def delete_model(self):
+        if not self.current_file_path: return
+        reply = QMessageBox.question(self, "Eliminar", f"¿Eliminar '{os.path.basename(self.current_file_path)}'?", 
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                os.remove(self.current_file_path)
+                self.current_file_path = None
+                self.editor.clear()
+                self.load_models()
+                self.status_bar.showMessage("Archivo eliminado.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", str(e))
 
     def mass_import(self):
         if QMessageBox.question(self, "Importar", "¿Convertir todos .txt?", QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
@@ -503,7 +685,8 @@ class ModelManagerApp(QMainWindow):
                     rp = os.path.join(MODELS_DIR, base+".rtf")
                     if not os.path.exists(rp):
                         with open(p, 'r', encoding='utf-8', errors='ignore') as fi: t=fi.read()
-                        with open(rp, 'w', encoding='utf-8') as fo: fo.write(f"<html><body><pre>{t}</pre></body></html>")
+                        with open(rp, 'w', encoding='utf-8') as fo: 
+                            fo.write(f'<html><body style="font-size:14pt;"><pre>{t}</pre></body></html>')
                         c+=1
             self.load_models()
             QMessageBox.information(self,"Info",f"Hecho: {c}")
