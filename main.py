@@ -1,6 +1,7 @@
 import sys
 import os
 import re
+import ctypes # <--- NECESARIO PARA EL ICONO EN BARRA DE TAREAS
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QListWidget, QTextEdit, QLineEdit, 
                              QPushButton, QSplitter, QMessageBox, QToolBar, 
@@ -14,10 +15,25 @@ from PyQt6.QtGui import (QAction, QIcon, QFont, QColor, QTextCursor,
 from PyQt6.QtCore import Qt, QSize, QUrl, QRegularExpression
 
 # =============================================================================
-# CONFIGURACIÓN
+# CONFIGURACIÓN Y RUTAS
 # =============================================================================
-APP_NAME = "Gestor de Modelos Pro (Complete Tools)"
+APP_NAME = "Gestor de Modelos Pro"
 
+# 1. FIX PARA QUE WINDOWS MUESTRE EL ICONO EN LA BARRA DE TAREAS
+myappid = 'martdumo.madnotes.pro.v13' 
+ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+
+# 2. FUNCIÓN PARA ENCONTRAR RECURSOS INTERNOS (EL ICONO DENTRO DEL EXE)
+def resource_path(relative_path):
+    """ Obtiene la ruta absoluta al recurso, funcione como dev o como PyInstaller """
+    try:
+        # PyInstaller crea una carpeta temporal en _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
+# 3. DETERMINAR CARPETA DE MODELOS (EXTERNA, AL LADO DEL EXE)
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable)
 else:
@@ -25,7 +41,6 @@ else:
 
 MODELS_DIR = os.path.join(BASE_DIR, "modelos")
 
-# TAMAÑO DE FUENTE BASE: 14pt
 DARK_STYLESHEET = """
 QMainWindow, QWidget, QDialog {
     background-color: #1e1e1e;
@@ -344,7 +359,8 @@ class ModelManagerApp(QMainWindow):
         self.ensure_directory()
         self.load_models()
 
-        icon_path = os.path.join(BASE_DIR, "app.ico")
+        # 4. CARGAR ICONO USANDO resource_path
+        icon_path = resource_path("app.ico")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
 
@@ -388,22 +404,17 @@ class ModelManagerApp(QMainWindow):
         self.setup_toolbar()
         self.create_menus()
         
-        # --- BOTONERA INFERIOR ---
         bot_layout = QHBoxLayout()
         self.btn_save = QPushButton("Guardar")
         self.btn_save.clicked.connect(self.save_model)
-        
-        # BOTÓN ELIMINAR (Agregado)
         self.btn_delete = QPushButton("Eliminar")
         self.btn_delete.setStyleSheet("background-color: #8B0000; font-weight: bold;")
         self.btn_delete.clicked.connect(self.delete_model)
-        
         self.btn_copy = QPushButton("📋 COPIAR TODO")
         self.btn_copy.setStyleSheet("background-color: #006400; font-weight: bold;")
         self.btn_copy.clicked.connect(self.copy_all)
-        
         bot_layout.addWidget(self.btn_save)
-        bot_layout.addWidget(self.btn_delete) # En medio
+        bot_layout.addWidget(self.btn_delete)
         bot_layout.addWidget(self.btn_copy)
         
         right_l.addWidget(self.toolbar)
@@ -494,8 +505,6 @@ class ModelManagerApp(QMainWindow):
         tb_act("🖍️", self.set_bg)
         
         self.toolbar.addSeparator()
-        
-        # --- NUEVOS BOTONES DE ALINEACIÓN ---
         tb_act("|<", lambda: self.editor.setAlignment(Qt.AlignmentFlag.AlignLeft))
         tb_act("><", lambda: self.editor.setAlignment(Qt.AlignmentFlag.AlignCenter))
         tb_act(">|", lambda: self.editor.setAlignment(Qt.AlignmentFlag.AlignRight))
