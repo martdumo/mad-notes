@@ -1,23 +1,21 @@
-# --- Python ---
+# --- Python & Build ---
 __pycache__/
 *.py[cod]
-*$py.class
-venv/
-env/
-
-# --- PyInstaller (Compilación) ---
-# Esto evita subir el EXE y las carpetas temporales
 build/
 dist/
 *.spec
-
-# --- IDEs / Editores ---
+venv/
+.env
 .vscode/
 .idea/
 
-# --- MAD NOTES ---
-# Ignorar todos los archivos dentro de la carpeta modelos (tus datos privados)
+# --- DATOS PRIVADOS (Old & New) ---
+# Ignorar carpeta vieja
 modelos/*
 
-# EXCEPCIÓN: Mantener la carpeta 'modelos' vacía en el repo
+# Ignorar carpeta NUEVA (Maletin)
+maletin/*
+
+# EXCEPCIÓN: Permitir subir el 'esqueleto' de las carpetas
 !modelos/.gitkeep
+!maletin/.gitkeep

@@ -17,10 +17,10 @@ from PyQt6.QtCore import Qt, QSize, QUrl, QRegularExpression
 # =============================================================================
 # CONFIGURACIÓN
 # =============================================================================
-APP_NAME = "Gestor de Modelos Pro (Deep Search)"
+APP_NAME = "Gestor Maletín MD (Markdown Edition)"
 
 # ID para la barra de tareas de Windows
-myappid = 'martdumo.madnotes.pro.v13' 
+myappid = 'martdumo.maletin.md.v1' 
 try:
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 except:
@@ -38,7 +38,8 @@ if getattr(sys, 'frozen', False):
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-MODELS_DIR = os.path.join(BASE_DIR, "modelos")
+# CAMBIO: CARPETA AHORA ES "maletin"
+MODELS_DIR = os.path.join(BASE_DIR, "maletin")
 
 # ESTILOS (14pt Base)
 DARK_STYLESHEET = """
@@ -169,38 +170,32 @@ class InsertLinkDialog(QDialog):
         else:
             QMessageBox.warning(self, "Error", "Complete ambos campos.")
 
-class EnhancedLinkHighlighter(QSyntaxHighlighter):
+class MarkdownLinkHighlighter(QSyntaxHighlighter):
+    """Resalta visualmente sintaxis Markdown cruda si aparece"""
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.internal_link_format = QTextCharFormat()
-        self.internal_link_format.setForeground(QColor("#4EC9B0")) 
-        self.internal_link_format.setFontUnderline(True)
-        self.internal_link_format.setFontWeight(QFont.Weight.Bold)
-        self.external_link_format = QTextCharFormat()
-        self.external_link_format.setForeground(QColor("#6A9955")) 
-        self.external_link_format.setFontUnderline(True)
-        self.external_link_format.setFontWeight(QFont.Weight.Bold)
-        self.internal_pattern = QRegularExpression(r"@@[\w\.-]+")
-        self.external_pattern = QRegularExpression(r"https?://[\w./?=&#-]+")
+        self.wiki_link_format = QTextCharFormat()
+        self.wiki_link_format.setForeground(QColor("#C586C0")) # Violeta para brackets
+        self.wiki_link_format.setFontWeight(QFont.Weight.Bold)
+        
+        # Detectar [[link]] crudo
+        self.wiki_pattern = QRegularExpression(r"\[\[.*?\]\]")
 
     def highlightBlock(self, text):
-        match_iterator = self.external_pattern.globalMatch(text)
+        match_iterator = self.wiki_pattern.globalMatch(text)
         while match_iterator.hasNext():
             match = match_iterator.next()
-            self.setFormat(match.capturedStart(), match.capturedLength(), self.external_link_format)
-        match_iterator = self.internal_pattern.globalMatch(text)
-        while match_iterator.hasNext():
-            match = match_iterator.next()
-            self.setFormat(match.capturedStart(), match.capturedLength(), self.internal_link_format)
+            self.setFormat(match.capturedStart(), match.capturedLength(), self.wiki_link_format)
 
-class SmartLinkTextEdit(QTextEdit):
+class SmartMarkdownTextEdit(QTextEdit):
     def __init__(self, parent_window):
         super().__init__()
         self.parent_window = parent_window
-        self.highlighter = EnhancedLinkHighlighter(self.document())
+        self.highlighter = MarkdownLinkHighlighter(self.document())
         self.setMouseTracking(True)
         self.viewport().setMouseTracking(True)
-        self.document().setDefaultStyleSheet("a { text-decoration: underline; color: #4EC9B0; font-weight: bold; }")
+        # Estilo CSS para enlaces renderizados
+        self.document().setDefaultStyleSheet("a { text-decoration: none; color: #4EC9B0; font-weight: bold; }")
         
         font = self.font()
         font.setPointSize(14)
@@ -208,61 +203,48 @@ class SmartLinkTextEdit(QTextEdit):
 
     def keyReleaseEvent(self, event):
         super().keyReleaseEvent(event)
-        if event.text() == "#": self.check_magic_tag()
+        # CAMBIO: Detectar cierre de brackets ']'
+        if event.text() == "]": self.check_magic_tag()
 
     def check_magic_tag(self):
+        """Convierte [[texto]] en un link visual al escribir"""
         cursor = self.textCursor()
         block_text = cursor.block().text()
         pos_in_block = cursor.positionInBlock()
         text_before = block_text[:pos_in_block]
-        match = re.search(r"##([\w\.-]+)##$", text_before)
+        
+        # Regex para buscar [[algo]] al final
+        # Escapamos los corchetes
+        match = re.search(r"\[\[([\w\s\.-]+)\]\]$", text_before)
         if match:
             model_name = match.group(1)
             full_tag = match.group(0)
+            
+            # Borrar [[texto]] e insertar Link HTML real (visual)
             cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.KeepAnchor, len(full_tag))
             cursor.removeSelectedText()
+            
+            # Usamos el protocolo model://
             html = f'<a href="model://{model_name}">{model_name}</a>&nbsp;'
             cursor.insertHtml(html)
-            self.setFontPointSize(14)
+            self.setFontPointSize(14) # Restaurar tamaño
 
     def mouseMoveEvent(self, event):
-        if self.anchorAt(event.pos()) or self.get_link_at_pos(event.pos()):
+        # Detectar hover sobre links
+        if self.anchorAt(event.pos()):
             self.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
         else:
             self.viewport().setCursor(Qt.CursorShape.IBeamCursor)
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        # Click simple para navegar
         if event.button() == Qt.MouseButton.LeftButton:
             url = self.anchorAt(event.pos())
             if url:
                 self.parent_window.handle_link(url)
                 return 
-            link_info = self.get_link_at_pos(event.pos())
-            if link_info:
-                l_type, l_target = link_info
-                if l_type == "internal":
-                    self.parent_window.handle_internal_link(l_target)
-                elif l_type == "external":
-                    self.parent_window.handle_external_link(l_target)
-                return
         super().mouseReleaseEvent(event)
-
-    def get_link_at_pos(self, pos):
-        cursor = self.cursorForPosition(pos)
-        block_text = cursor.block().text()
-        pos_in_block = cursor.positionInBlock()
-        internal_regex = re.compile(r"@@[\w\.-]+")
-        for match in internal_regex.finditer(block_text):
-            start, end = match.span()
-            if start <= pos_in_block <= end:
-                return ("internal", match.group()[2:]) 
-        external_regex = re.compile(r"https?://[\w./?=&#-]+")
-        for match in external_regex.finditer(block_text):
-            start, end = match.span()
-            if start <= pos_in_block <= end:
-                return ("external", match.group())
-        return None
 
 class FindReplaceDialog(QDialog):
     def __init__(self, parent, editor):
@@ -338,7 +320,7 @@ class ModelManagerApp(QMainWindow):
         super().__init__()
         self.current_file_path = None
         self.all_files = [] 
-        self.content_cache = {} # Cache de contenido para búsqueda
+        self.content_cache = {} 
         self.find_dialog = None
         
         self.history = []        
@@ -358,7 +340,6 @@ class ModelManagerApp(QMainWindow):
 
     def init_ui(self):
         self.setWindowTitle(APP_NAME)
-        # ANCHO AUMENTADO A 1500px
         self.resize(1500, 900) 
         
         central = QWidget()
@@ -371,7 +352,7 @@ class ModelManagerApp(QMainWindow):
         left_l = QVBoxLayout(left_p)
         left_l.setContentsMargins(0,0,0,0)
         self.search_bar = QLineEdit()
-        self.search_bar.setPlaceholderText("🔍 Filtrar por nombre o contenido...")
+        self.search_bar.setPlaceholderText("🔍 Filtrar...")
         self.search_bar.textChanged.connect(self.filter_models)
         self.list_widget = QListWidget()
         self.list_widget.currentItemChanged.connect(self.on_model_selected)
@@ -386,8 +367,8 @@ class ModelManagerApp(QMainWindow):
         right_l = QVBoxLayout(right_p)
         right_l.setContentsMargins(0,0,0,0)
         
-        self.editor = SmartLinkTextEdit(self)
-        self.editor.setAcceptRichText(True)
+        self.editor = SmartMarkdownTextEdit(self)
+        self.editor.setAcceptRichText(True) # Necesario para mostrar imágenes y links visuales
         self.editor.textChanged.connect(self.update_stats)
         
         self.toolbar = QToolBar()
@@ -417,7 +398,6 @@ class ModelManagerApp(QMainWindow):
         
         splitter.addWidget(left_p)
         splitter.addWidget(right_p)
-        # Ajustar proporción para que la Toolbar entre bien
         splitter.setSizes([350, 1150]) 
         layout.addWidget(splitter)
         
@@ -437,7 +417,7 @@ class ModelManagerApp(QMainWindow):
         self.add_menu_action(m_file, "Nuevo", self.new_model, "Ctrl+N")
         self.add_menu_action(m_file, "Guardar", self.save_model, "Ctrl+S")
         m_file.addSeparator()
-        self.add_menu_action(m_file, "Importar Masivo", self.mass_import)
+        self.add_menu_action(m_file, "Importar Masivo (.txt)", self.mass_import)
         m_file.addSeparator()
         self.add_menu_action(m_file, "Salir", self.close)
         
@@ -537,6 +517,7 @@ class ModelManagerApp(QMainWindow):
         self.act_fwd.setEnabled(self.history_index < len(self.history) - 1)
 
     def handle_link(self, url):
+        # CAMBIO: Usar model:// para links internos
         if url.startswith("model://"):
             target = url.replace("model://", "")
             self.handle_internal_link(target)
@@ -576,7 +557,8 @@ class ModelManagerApp(QMainWindow):
             QMessageBox.warning(self, "Error", f"Error abriendo: {e}")
 
     def create_new(self, name):
-        filename = f"{name}.rtf"
+        # CAMBIO: Extensión .md
+        filename = f"{name}.md"
         path = os.path.join(MODELS_DIR, filename)
         try:
             with open(path, 'w', encoding='utf-8') as f: f.write("")
@@ -593,24 +575,20 @@ class ModelManagerApp(QMainWindow):
             if r == QMessageBox.StandardButton.Yes: self.save_model()
         return True
 
-    # --- LÓGICA DE BÚSQUEDA PROFUNDA ---
     def load_models(self):
         self.list_widget.clear()
         self.all_files = []
-        self.content_cache = {} # Limpiar caché
-        
+        self.content_cache = {}
         try:
             for f in os.listdir(MODELS_DIR):
-                if f.lower().endswith(('.rtf','.txt','.html')):
+                # CAMBIO: Solo buscar MD (y TXT/HTML legacy si quieres, pero nos enfocamos en MD)
+                if f.lower().endswith('.md'):
                     path = os.path.join(MODELS_DIR, f)
-                    
-                    # Leer y cachear contenido para búsqueda
                     try:
                         with open(path, 'r', encoding='utf-8', errors='ignore') as file:
-                            content = file.read().lower() # Guardar en minúsculas
+                            content = file.read().lower()
                         self.content_cache[f] = content
-                    except:
-                        self.content_cache[f] = ""
+                    except: self.content_cache[f] = ""
                     
                     self.all_files.append(f)
                     self.list_widget.addItem(f)
@@ -620,7 +598,6 @@ class ModelManagerApp(QMainWindow):
         txt = txt.lower()
         self.list_widget.clear()
         for f in self.all_files:
-            # Buscar en el nombre del archivo OR en el contenido cacheado
             content = self.content_cache.get(f, "")
             if txt in f.lower() or txt in content:
                 self.list_widget.addItem(f)
@@ -634,10 +611,30 @@ class ModelManagerApp(QMainWindow):
     def load_file(self, path):
         if not os.path.exists(path): return
         try:
+            # 1. LEER RAW MARKDOWN
             with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                c = f.read()
-            if "{\\rtf" in c or "<html" in c: self.editor.setHtml(c)
-            else: self.editor.setPlainText(c)
+                content = f.read()
+            
+            # 2. PROCESAR [[LINKS]] PARA QUE SEAN VISUALES (HTML)
+            # Regex: [[Algo]] -> <a href="model://Algo">Algo</a>
+            # Esto es lo que permite que se vean "bonitos" en el editor
+            def replace_wiki_link(match):
+                name = match.group(1)
+                return f'<a href="model://{name}">{name}</a>'
+            
+            # Reemplazar [[Wiki]] por HTML
+            processed_content = re.sub(r'\[\[([\w\s\.-]+)\]\]', replace_wiki_link, content)
+            
+            # 3. CARGAR EN EDITOR
+            # Usamos setMarkdown si fuera MD puro, pero como inyectamos HTML (<a>), usamos setHtml o setMarkdown con dialecto.
+            # setMarkdown de Qt NO soporta tags <a> arbitrarios facilmente. 
+            # TRUCO: Usamos setHtml para que interprete los links, pero PyQt convierte MD a HTML automágicamente con setMarkdown.
+            # Vamos a usar setMarkdown y confiar en que Qt renderice los links estándar.
+            # Mejor aun: Convertimos [[Wiki]] a [Wiki](model://Wiki) que es Markdown estándar.
+            
+            md_content = re.sub(r'\[\[([\w\s\.-]+)\]\]', r'[\1](model://\1)', content)
+            
+            self.editor.setMarkdown(md_content)
             
             self.current_file_path = path
             self.editor.document().setModified(False)
@@ -661,22 +658,31 @@ class ModelManagerApp(QMainWindow):
 
     def save_model(self):
         if self.current_file_path:
-            # Obtener contenido actual (HTML)
-            content_html = self.editor.toHtml()
-            # Guardar en disco
-            with open(self.current_file_path, 'w', encoding='utf-8') as f:
-                f.write(content_html)
+            # 1. OBTENER MARKDOWN DE QT
+            # Qt devuelve Markdown estándar: [Nombre](model://Nombre)
+            markdown_out = self.editor.toMarkdown()
             
-            # ACTUALIZAR CACHÉ DE CONTENIDO (para que la búsqueda encuentre lo nuevo)
-            filename = os.path.basename(self.current_file_path)
-            self.content_cache[filename] = content_html.lower()
+            # 2. REVERTIR LINKS AL FORMATO [[Wiki]]
+            # Convertir [Nombre](model://Nombre) -> [[Nombre]]
+            # Regex busca: [CualquierCosa](model://CualquierCosa)
+            # Nota: Qt a veces agrega escapes.
+            
+            # Patrón simple: [Texto](model://Texto)
+            markdown_final = re.sub(r'\[(.*?)\]\(model://.*?\)', r'[[\1]]', markdown_out)
+            
+            # Guardar
+            with open(self.current_file_path, 'w', encoding='utf-8') as f:
+                f.write(markdown_final)
+            
+            # Cache update
+            self.content_cache[os.path.basename(self.current_file_path)] = markdown_final.lower()
             
             self.editor.document().setModified(False)
-            self.status_bar.showMessage("Guardado.")
+            self.status_bar.showMessage("Guardado (MD).")
         else:
             name, ok = QInputDialog.getText(self, "Guardar", "Nombre:")
             if ok and name:
-                if not name.lower().endswith('.rtf'): name+=".rtf"
+                if not name.lower().endswith('.md'): name+=".md"
                 path = os.path.join(MODELS_DIR, name)
                 self.current_file_path = path
                 self.save_model()
@@ -705,29 +711,33 @@ class ModelManagerApp(QMainWindow):
                 QMessageBox.critical(self, "Error", str(e))
 
     def mass_import(self):
-        if QMessageBox.question(self, "Importar", "¿Convertir todos .txt?", QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
+        if QMessageBox.question(self, "Importar", "¿Convertir todos .txt a .md?", QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
             c=0
             for f in os.listdir(MODELS_DIR):
                 if f.endswith(".txt"):
                     base = os.path.splitext(f)[0]
                     p = os.path.join(MODELS_DIR, f)
-                    rp = os.path.join(MODELS_DIR, base+".rtf")
+                    rp = os.path.join(MODELS_DIR, base+".md")
                     if not os.path.exists(rp):
                         with open(p, 'r', encoding='utf-8', errors='ignore') as fi: t=fi.read()
                         with open(rp, 'w', encoding='utf-8') as fo: 
-                            fo.write(f'<html><body style="font-size:14pt;"><pre>{t}</pre></body></html>')
+                            fo.write(t) # Guardar texto plano como MD
                         c+=1
             self.load_models()
             QMessageBox.information(self,"Info",f"Hecho: {c}")
 
     # --- TOOLS ---
     def set_fmt(self, t):
+        # En modo Markdown (setMarkdown), Qt maneja esto automáticamente como RichText visual
+        # pero al guardar con toMarkdown() lo convierte a **bold**, *italic*, etc.
         f = self.editor.fontWeight()
         if t=="bold": self.editor.setFontWeight(QFont.Weight.Bold if f!=QFont.Weight.Bold else QFont.Weight.Normal)
         if t=="italic": self.editor.setFontItalic(not self.editor.fontItalic())
         if t=="under": self.editor.setFontUnderline(not self.editor.fontUnderline())
     
     def set_color(self):
+        # OJO: Markdown estándar NO soporta colores. Qt lo mostrará, pero toMarkdown() podría ignorarlo
+        # o guardarlo como HTML <span> si el dialecto lo permite.
         c = QColorDialog.getColor()
         if c.isValid(): self.editor.setTextColor(c)
     def set_bg(self):
