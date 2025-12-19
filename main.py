@@ -1,7 +1,7 @@
 import sys
 import os
 import re
-import ctypes # <--- NECESARIO PARA EL ICONO EN BARRA DE TAREAS
+import ctypes
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QListWidget, QTextEdit, QLineEdit, 
                              QPushButton, QSplitter, QMessageBox, QToolBar, 
@@ -15,25 +15,24 @@ from PyQt6.QtGui import (QAction, QIcon, QFont, QColor, QTextCursor,
 from PyQt6.QtCore import Qt, QSize, QUrl, QRegularExpression
 
 # =============================================================================
-# CONFIGURACIÓN Y RUTAS
+# CONFIGURACIÓN
 # =============================================================================
-APP_NAME = "Gestor de Modelos Pro"
+APP_NAME = "Gestor de Modelos Pro (Deep Search)"
 
-# 1. FIX PARA QUE WINDOWS MUESTRE EL ICONO EN LA BARRA DE TAREAS
+# ID para la barra de tareas de Windows
 myappid = 'martdumo.madnotes.pro.v13' 
-ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+try:
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+except:
+    pass
 
-# 2. FUNCIÓN PARA ENCONTRAR RECURSOS INTERNOS (EL ICONO DENTRO DEL EXE)
 def resource_path(relative_path):
-    """ Obtiene la ruta absoluta al recurso, funcione como dev o como PyInstaller """
     try:
-        # PyInstaller crea una carpeta temporal en _MEIPASS
         base_path = sys._MEIPASS
     except Exception:
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
-# 3. DETERMINAR CARPETA DE MODELOS (EXTERNA, AL LADO DEL EXE)
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable)
 else:
@@ -41,6 +40,7 @@ else:
 
 MODELS_DIR = os.path.join(BASE_DIR, "modelos")
 
+# ESTILOS (14pt Base)
 DARK_STYLESHEET = """
 QMainWindow, QWidget, QDialog {
     background-color: #1e1e1e;
@@ -129,7 +129,7 @@ QLabel { color: #e0e0e0; }
 """
 
 # =============================================================================
-# DIÁLOGO INSERTAR HIPERVÍNCULO
+# DIÁLOGOS Y CLASES AUXILIARES
 # =============================================================================
 class InsertLinkDialog(QDialog):
     def __init__(self, parent):
@@ -169,9 +169,6 @@ class InsertLinkDialog(QDialog):
         else:
             QMessageBox.warning(self, "Error", "Complete ambos campos.")
 
-# =============================================================================
-# RESALTADOR DE SINTAXIS (LINKS)
-# =============================================================================
 class EnhancedLinkHighlighter(QSyntaxHighlighter):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -196,9 +193,6 @@ class EnhancedLinkHighlighter(QSyntaxHighlighter):
             match = match_iterator.next()
             self.setFormat(match.capturedStart(), match.capturedLength(), self.internal_link_format)
 
-# =============================================================================
-# EDITOR INTELIGENTE
-# =============================================================================
 class SmartLinkTextEdit(QTextEdit):
     def __init__(self, parent_window):
         super().__init__()
@@ -208,7 +202,6 @@ class SmartLinkTextEdit(QTextEdit):
         self.viewport().setMouseTracking(True)
         self.document().setDefaultStyleSheet("a { text-decoration: underline; color: #4EC9B0; font-weight: bold; }")
         
-        # FUENTE INICIAL (14pt)
         font = self.font()
         font.setPointSize(14)
         self.setFont(font)
@@ -271,9 +264,6 @@ class SmartLinkTextEdit(QTextEdit):
                 return ("external", match.group())
         return None
 
-# =============================================================================
-# DIÁLOGO BUSCAR
-# =============================================================================
 class FindReplaceDialog(QDialog):
     def __init__(self, parent, editor):
         super().__init__(parent)
@@ -286,13 +276,11 @@ class FindReplaceDialog(QDialog):
     def init_ui(self):
         layout = QGridLayout()
         layout.setVerticalSpacing(15)
-        
         self.lbl_find = QLabel("Buscar:")
         self.txt_find = QLineEdit()
         self.lbl_rep = QLabel("Reemplazar:")
         self.txt_rep = QLineEdit()
         self.chk_case = QCheckBox("Mayús/Minús")
-        
         self.btn_find = QPushButton("Buscar Siguiente")
         self.btn_rep = QPushButton("Reemplazar")
         self.btn_all = QPushButton("Reemplazar Todo")
@@ -350,7 +338,9 @@ class ModelManagerApp(QMainWindow):
         super().__init__()
         self.current_file_path = None
         self.all_files = [] 
+        self.content_cache = {} # Cache de contenido para búsqueda
         self.find_dialog = None
+        
         self.history = []        
         self.history_index = -1  
         self.is_navigating = False
@@ -359,7 +349,6 @@ class ModelManagerApp(QMainWindow):
         self.ensure_directory()
         self.load_models()
 
-        # 4. CARGAR ICONO USANDO resource_path
         icon_path = resource_path("app.ico")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
@@ -369,7 +358,8 @@ class ModelManagerApp(QMainWindow):
 
     def init_ui(self):
         self.setWindowTitle(APP_NAME)
-        self.resize(1300, 850) 
+        # ANCHO AUMENTADO A 1500px
+        self.resize(1500, 900) 
         
         central = QWidget()
         self.setCentralWidget(central)
@@ -381,7 +371,7 @@ class ModelManagerApp(QMainWindow):
         left_l = QVBoxLayout(left_p)
         left_l.setContentsMargins(0,0,0,0)
         self.search_bar = QLineEdit()
-        self.search_bar.setPlaceholderText("🔍 Filtrar...")
+        self.search_bar.setPlaceholderText("🔍 Filtrar por nombre o contenido...")
         self.search_bar.textChanged.connect(self.filter_models)
         self.list_widget = QListWidget()
         self.list_widget.currentItemChanged.connect(self.on_model_selected)
@@ -404,15 +394,19 @@ class ModelManagerApp(QMainWindow):
         self.setup_toolbar()
         self.create_menus()
         
+        # --- BOTONERA ---
         bot_layout = QHBoxLayout()
         self.btn_save = QPushButton("Guardar")
         self.btn_save.clicked.connect(self.save_model)
+        
         self.btn_delete = QPushButton("Eliminar")
         self.btn_delete.setStyleSheet("background-color: #8B0000; font-weight: bold;")
         self.btn_delete.clicked.connect(self.delete_model)
+        
         self.btn_copy = QPushButton("📋 COPIAR TODO")
         self.btn_copy.setStyleSheet("background-color: #006400; font-weight: bold;")
         self.btn_copy.clicked.connect(self.copy_all)
+        
         bot_layout.addWidget(self.btn_save)
         bot_layout.addWidget(self.btn_delete)
         bot_layout.addWidget(self.btn_copy)
@@ -423,7 +417,8 @@ class ModelManagerApp(QMainWindow):
         
         splitter.addWidget(left_p)
         splitter.addWidget(right_p)
-        splitter.setSizes([350, 950])
+        # Ajustar proporción para que la Toolbar entre bien
+        splitter.setSizes([350, 1150]) 
         layout.addWidget(splitter)
         
         self.status_bar = self.statusBar()
@@ -598,20 +593,37 @@ class ModelManagerApp(QMainWindow):
             if r == QMessageBox.StandardButton.Yes: self.save_model()
         return True
 
+    # --- LÓGICA DE BÚSQUEDA PROFUNDA ---
     def load_models(self):
         self.list_widget.clear()
         self.all_files = []
+        self.content_cache = {} # Limpiar caché
+        
         try:
             for f in os.listdir(MODELS_DIR):
                 if f.lower().endswith(('.rtf','.txt','.html')):
+                    path = os.path.join(MODELS_DIR, f)
+                    
+                    # Leer y cachear contenido para búsqueda
+                    try:
+                        with open(path, 'r', encoding='utf-8', errors='ignore') as file:
+                            content = file.read().lower() # Guardar en minúsculas
+                        self.content_cache[f] = content
+                    except:
+                        self.content_cache[f] = ""
+                    
                     self.all_files.append(f)
                     self.list_widget.addItem(f)
         except: pass
 
     def filter_models(self, txt):
+        txt = txt.lower()
         self.list_widget.clear()
         for f in self.all_files:
-            if txt.lower() in f.lower(): self.list_widget.addItem(f)
+            # Buscar en el nombre del archivo OR en el contenido cacheado
+            content = self.content_cache.get(f, "")
+            if txt in f.lower() or txt in content:
+                self.list_widget.addItem(f)
 
     def on_model_selected(self, curr, prev):
         if not curr: return
@@ -649,8 +661,16 @@ class ModelManagerApp(QMainWindow):
 
     def save_model(self):
         if self.current_file_path:
+            # Obtener contenido actual (HTML)
+            content_html = self.editor.toHtml()
+            # Guardar en disco
             with open(self.current_file_path, 'w', encoding='utf-8') as f:
-                f.write(self.editor.toHtml())
+                f.write(content_html)
+            
+            # ACTUALIZAR CACHÉ DE CONTENIDO (para que la búsqueda encuentre lo nuevo)
+            filename = os.path.basename(self.current_file_path)
+            self.content_cache[filename] = content_html.lower()
+            
             self.editor.document().setModified(False)
             self.status_bar.showMessage("Guardado.")
         else:
