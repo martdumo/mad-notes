@@ -2,6 +2,7 @@ import sys
 import os
 import re
 import ctypes
+import json  # <--- NUEVO: Para guardar la configuración de inicio
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QListWidget, QTextEdit, QLineEdit, 
                              QPushButton, QSplitter, QMessageBox, QToolBar, 
@@ -20,7 +21,7 @@ from PyQt6.QtCore import Qt, QSize, QUrl, QRegularExpression
 APP_NAME = "Gestor Maletín (Tokyo Terminal)"
 
 # ID de Aplicación
-myappid = 'martdumo.maletin.tokyo.v16' 
+myappid = 'martdumo.maletin.tokyo.v17' 
 try:
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 except:
@@ -39,6 +40,7 @@ else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 MODELS_DIR = os.path.join(BASE_DIR, "maletin")
+CONFIG_FILE = os.path.join(BASE_DIR, "config.json") # <--- Archivo de configuración
 
 # =============================================================================
 # ESTILOS TOKYO NIGHT (KITTY STYLE)
@@ -198,26 +200,23 @@ class InsertLinkDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
         self.setWindowTitle("Insertar Hipervínculo")
-        self.resize(600, 250)
+        self.resize(500, 200)
         self.result_data = None
         self.init_ui()
 
     def init_ui(self):
         layout = QGridLayout()
-        layout.setVerticalSpacing(20)
+        layout.setVerticalSpacing(15)
         
-        lbl_text = QLabel("TEXTO A MOSTRAR:")
+        lbl_text = QLabel("Texto a mostrar:")
         self.txt_text = QLineEdit()
-        lbl_url = QLabel("DIRECCIÓN (URL):")
+        lbl_url = QLabel("Dirección (URL):")
         self.txt_url = QLineEdit()
         self.txt_url.setPlaceholderText("https://... o model://...")
         
-        btn_ok = QPushButton("INSERTAR")
-        btn_ok.setStyleSheet(f"color: {C_SUCCESS}; border-color: {C_SUCCESS};")
+        btn_ok = QPushButton("Insertar")
         btn_ok.clicked.connect(self.on_ok)
-        
-        btn_cancel = QPushButton("CANCELAR")
-        btn_cancel.setStyleSheet(f"color: {C_URGENT}; border-color: {C_URGENT};")
+        btn_cancel = QPushButton("Cancelar")
         btn_cancel.clicked.connect(self.reject)
         
         layout.addWidget(lbl_text, 0, 0)
@@ -239,16 +238,14 @@ class EnhancedLinkHighlighter(QSyntaxHighlighter):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.internal_link_format = QTextCharFormat()
-        self.internal_link_format.setForeground(QColor(C_ACCENT)) 
+        self.internal_link_format.setForeground(QColor("#4EC9B0")) 
         self.internal_link_format.setFontUnderline(True)
         self.internal_link_format.setFontWeight(QFont.Weight.Bold)
-        
         self.external_link_format = QTextCharFormat()
-        self.external_link_format.setForeground(QColor(C_SUCCESS)) 
+        self.external_link_format.setForeground(QColor("#6A9955")) 
         self.external_link_format.setFontUnderline(True)
         self.external_link_format.setFontWeight(QFont.Weight.Bold)
-        
-        self.internal_pattern = QRegularExpression(r"##[\w\.-]+##")
+        self.internal_pattern = QRegularExpression(r"@@[\w\.-]+")
         self.external_pattern = QRegularExpression(r"https?://[\w./?=&#-]+")
 
     def highlightBlock(self, text):
@@ -274,6 +271,19 @@ class SmartLinkTextEdit(QTextEdit):
         font.setPointSize(16)
         font.setFamily("Cascadia Code")
         self.setFont(font)
+
+    # --- CAMBIO 1: ZOOM CON CTRL + SCROLL ---
+    def wheelEvent(self, event):
+        if event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+            delta = event.angleDelta().y()
+            if delta > 0:
+                self.zoomIn(1)
+            else:
+                self.zoomOut(1)
+            event.accept()
+        else:
+            super().wheelEvent(event)
+    # ----------------------------------------
 
     def keyReleaseEvent(self, event):
         super().keyReleaseEvent(event)
@@ -417,20 +427,45 @@ class ModelManagerApp(QMainWindow):
         
         self.init_ui()
         self.ensure_directory()
+        
+        # --- CARGAR CONFIGURACIÓN DE INICIO ---
+        self.startup_file = self.load_startup_config()
+        
         self.load_models()
 
         icon_path = resource_path("app.ico")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
 
-        # Argumentos
+        # --- LÓGICA DE APERTURA (Argumentos vs Inicio) ---
+        opened = False
         if len(sys.argv) > 1:
             external_file = sys.argv[1]
             if os.path.exists(external_file):
                 self.open_external_file(external_file)
+                opened = True
+        
+        # Si no se abrió nada externo y tenemos un archivo de inicio configurado
+        if not opened and self.startup_file:
+            path_inicio = os.path.join(MODELS_DIR, self.startup_file)
+            if os.path.exists(path_inicio):
+                # Seleccionarlo y abrirlo
+                items = self.list_widget.findItems(self.startup_file, Qt.MatchFlag.MatchFixedString)
+                if items:
+                    self.list_widget.setCurrentItem(items[0])
+                    # (El setCurrentItem dispara on_model_selected que carga el archivo)
 
     def ensure_directory(self):
         if not os.path.exists(MODELS_DIR): os.makedirs(MODELS_DIR)
+
+    def load_startup_config(self):
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, 'r') as f:
+                    data = json.load(f)
+                    return data.get("startup_file", "")
+            except: pass
+        return ""
 
     def init_ui(self):
         self.setWindowTitle(APP_NAME)
@@ -448,8 +483,13 @@ class ModelManagerApp(QMainWindow):
         self.search_bar = QLineEdit()
         self.search_bar.setPlaceholderText("🔍 Filtrar...")
         self.search_bar.textChanged.connect(self.filter_models)
+        
+        # LISTA CON CONTEXT MENU
         self.list_widget = QListWidget()
+        self.list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.list_widget.customContextMenuRequested.connect(self.show_context_menu)
         self.list_widget.currentItemChanged.connect(self.on_model_selected)
+        
         btn_ref = QPushButton("🔄 REFRESCAR")
         btn_ref.clicked.connect(self.load_models)
         left_l.addWidget(self.search_bar)
@@ -495,13 +535,39 @@ class ModelManagerApp(QMainWindow):
         splitter.setSizes([350, 1150]) 
         layout.addWidget(splitter)
         
-        # FIX: Eliminamos el setShortcut del botón para evitar conflicto con el menú
-        # self.btn_save.setShortcut("Ctrl+S") 
-        
+        self.btn_save.setShortcut("Ctrl+S")
         self.status_bar = self.statusBar()
         self.lbl_stats = QLabel("LINEAS: 0 | CARACTERES: 0")
         self.status_bar.addPermanentWidget(self.lbl_stats)
 
+    # --- CAMBIO 2: MENÚ CONTEXTUAL PARA DEFINIR INICIO ---
+    def show_context_menu(self, pos):
+        item = self.list_widget.itemAt(pos)
+        if item:
+            menu = QMenu()
+            # Estilo del menú
+            menu.setStyleSheet(f"""
+                QMenu {{ background-color: {C_BG}; border: 1px solid {C_ACCENT}; }}
+                QMenu::item {{ padding: 8px 20px; color: {C_FG}; }}
+                QMenu::item:selected {{ background-color: {C_SEL}; }}
+            """)
+            
+            act_home = QAction("🏠 Establecer como Inicio", self)
+            act_home.triggered.connect(lambda: self.set_as_startup(item.text()))
+            menu.addAction(act_home)
+            
+            menu.exec(self.list_widget.mapToGlobal(pos))
+
+    def set_as_startup(self, filename):
+        try:
+            with open(CONFIG_FILE, 'w') as f:
+                json.dump({"startup_file": filename}, f)
+            self.startup_file = filename
+            QMessageBox.information(self, "Inicio", f"'{filename}' se abrirá al iniciar el programa.", QMessageBox.StandardButton.Ok)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo guardar la configuración: {e}")
+
+    # --- RESTO DEL CÓDIGO ---
     def add_menu_action(self, menu, text, slot, shortcut=None):
         a = QAction(text, self)
         if shortcut: a.setShortcut(shortcut)
@@ -512,10 +578,9 @@ class ModelManagerApp(QMainWindow):
         mb = self.menuBar()
         m_file = mb.addMenu("&ARCHIVO")
         self.add_menu_action(m_file, "Nuevo", self.new_model, "Ctrl+N")
-        # El atajo Ctrl+S vive aquí ahora
         self.add_menu_action(m_file, "Guardar", self.save_model, "Ctrl+S")
         m_file.addSeparator()
-        self.add_menu_action(m_file, "Abrir...", self.open_any_file) # CAMBIO: Abrir
+        self.add_menu_action(m_file, "Abrir...", self.open_any_file)
         self.add_menu_action(m_file, "Importar Masivo", self.mass_import)
         m_file.addSeparator()
         self.add_menu_action(m_file, "Salir", self.close)
@@ -585,13 +650,10 @@ class ModelManagerApp(QMainWindow):
         tb_act("|=|", lambda: self.editor.setAlignment(Qt.AlignmentFlag.AlignJustify))
         
         self.toolbar.addSeparator()
-        
-        # CAMBIO: Botón ABRIR reemplaza Importar
         self.btn_open = QAction("📂 ABRIR", self)
         self.btn_open.triggered.connect(self.open_any_file)
         self.toolbar.addAction(self.btn_open)
 
-    # --- Lógica de Archivos y Eventos ---
     def add_to_history(self, filepath):
         if self.is_navigating: return
         if self.history and self.history_index >= 0:
@@ -662,7 +724,6 @@ class ModelManagerApp(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Error abriendo: {e}")
 
-    # --- NUEVA FUNCIÓN: ABRIR CUALQUIER ARCHIVO ---
     def open_any_file(self):
         path, _ = QFileDialog.getOpenFileName(self, "Abrir Archivo", "", "Archivos (*.rtf *.md *.txt);;Todos (*.*)")
         if path:
@@ -670,44 +731,31 @@ class ModelManagerApp(QMainWindow):
 
     def open_external_file(self, filepath):
         try:
-            # 1. Detectar tipo
             ext = os.path.splitext(filepath)[1].lower()
             content = ""
-            
             with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
                 raw_text = f.read()
 
             if ext == '.md':
-                # Convertir MD a HTML Visual
                 content = self.parse_markdown_visual(raw_text)
             else:
-                # Asumir RTF o Texto Plano
                 content = raw_text
 
-            # 2. Configurar Ruta de Destino en Maletín
             filename = os.path.basename(filepath)
-            # Forzar extensión .rtf para guardarlo en nuestro formato
             filename = os.path.splitext(filename)[0] + ".rtf"
             target_path = os.path.join(MODELS_DIR, filename)
             
-            # 3. Cargar en Editor
             if "{\\rtf" in content or "<html" in content or ext == '.md':
                 self.editor.setHtml(content)
             else:
                 self.editor.setPlainText(content)
             
             self.editor.setFontPointSize(16)
-            
-            # 4. Establecer como archivo actual (apunta al Maletin)
             self.current_file_path = target_path
-            
-            # 5. Guardar automáticamente en el Maletin (Importación)
             self.save_model() 
             self.load_models() 
-            
             self.status_bar.showMessage(f"Abierto e Importado: {filename}")
             
-            # Seleccionar en lista
             items = self.list_widget.findItems(filename, Qt.MatchFlag.MatchFixedString)
             if items: self.list_widget.setCurrentItem(items[0])
 
@@ -715,7 +763,6 @@ class ModelManagerApp(QMainWindow):
             QMessageBox.critical(self, "Error", f"No se pudo abrir:\n{e}")
 
     def parse_markdown_visual(self, text):
-        # Conversor simple MD -> HTML para visualización
         text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         text = re.sub(r'^# (.*?)$', r'<h1 style="font-size:24pt; color:#7aa2f7;">\1</h1>', text, flags=re.MULTILINE)
         text = re.sub(r'^## (.*?)$', r'<h2 style="font-size:20pt; color:#7aa2f7;">\1</h2>', text, flags=re.MULTILINE)
@@ -756,7 +803,6 @@ class ModelManagerApp(QMainWindow):
                             content = file.read().lower()
                         self.content_cache[f] = content
                     except: self.content_cache[f] = ""
-                    
                     self.all_files.append(f)
                     self.list_widget.addItem(f)
         except: pass
