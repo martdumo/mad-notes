@@ -2,18 +2,19 @@ import sys
 import os
 import re
 import ctypes
-import json  # <--- NUEVO: Para guardar la configuración de inicio
+import json
+import platform
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QListWidget, QTextEdit, QLineEdit, 
                              QPushButton, QSplitter, QMessageBox, QToolBar, 
                              QColorDialog, QFontComboBox, QSpinBox, QFileDialog,
                              QInputDialog, QLabel, QMenu, QMenuBar, QDialog, 
-                             QGridLayout, QCheckBox)
+                             QGridLayout, QCheckBox, QComboBox)
 from PyQt6.QtGui import (QAction, QIcon, QFont, QColor, QTextCursor, 
                          QTextListFormat, QTextTableFormat, QTextCharFormat,
                          QTextBlockFormat, QTextDocument, QPixmap, QDesktopServices,
                          QSyntaxHighlighter)
-from PyQt6.QtCore import Qt, QSize, QUrl, QRegularExpression
+from PyQt6.QtCore import Qt, QSize, QUrl, QRegularExpression, QSettings
 
 # =============================================================================
 # CONFIGURACIÓN
@@ -34,13 +35,22 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
-if getattr(sys, 'frozen', False):
-    BASE_DIR = os.path.dirname(sys.executable)
-else:
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+def get_app_config_dir():
+    """Obtiene el directorio de configuración de la aplicación según el sistema operativo"""
+    if platform.system() == "Windows":
+        return os.path.join(os.getenv('APPDATA'), 'maletin-app')
+    elif platform.system() == "Darwin":  # macOS
+        return os.path.join(os.path.expanduser('~/Library/Application Support'), 'maletin-app')
+    else:  # Linux y otros
+        return os.path.join(os.path.expanduser('~/.config'), 'maletin-app')
 
-MODELS_DIR = os.path.join(BASE_DIR, "maletin")
-CONFIG_FILE = os.path.join(BASE_DIR, "config.json") # <--- Archivo de configuración
+# Directorio de configuración de la app
+APP_CONFIG_DIR = get_app_config_dir()
+os.makedirs(APP_CONFIG_DIR, exist_ok=True)
+
+# Archivo de configuración para guardar el vault actual
+CONFIG_FILE = os.path.join(APP_CONFIG_DIR, "app_config.json")
+VAULT_HISTORY_FILE = os.path.join(APP_CONFIG_DIR, "vault_history.json")
 
 # =============================================================================
 # ESTILOS TOKYO NIGHT (KITTY STYLE)
@@ -174,6 +184,17 @@ QLabel {{
     color: {C_FG}; 
     font-family: {FONT_FAMILY};
 }}
+QComboBox {{
+    background-color: {C_SIDE};
+    color: {C_FG};
+    border: 1px solid {C_BORDER};
+    border-radius: 4px;
+    padding: 8px;
+    selection-background-color: {C_SEL};
+}}
+QComboBox:hover {{
+    border: 1px solid {C_ACCENT};
+}}
 QScrollBar:vertical {{
     border: none;
     background: {C_BG};
@@ -194,6 +215,205 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
 """
 
 # =============================================================================
+# FUNCIONES DE CONFIGURACIÓN DEL VAULT
+# =============================================================================
+def load_vault_config():
+    """Carga la configuración del vault actual"""
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                return config.get('current_vault', ''), config.get('startup_file', '')
+        except Exception as e:
+            print(f"Error al cargar configuración: {e}")
+    return '', ''
+
+def save_vault_config(vault_path, startup_file=''):
+    """Guarda la configuración del vault actual"""
+    try:
+        config = {
+            'current_vault': vault_path,
+            'startup_file': startup_file
+        }
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"Error al guardar configuración: {e}")
+        return False
+
+def load_vault_history():
+    """Carga el historial de vaults utilizados"""
+    if os.path.exists(VAULT_HISTORY_FILE):
+        try:
+            with open(VAULT_HISTORY_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Error al cargar historial de vaults: {e}")
+    return []
+
+def save_vault_history(vault_path):
+    """Guarda un vault en el historial"""
+    history = load_vault_history()
+    
+    # Si el vault ya existe en el historial, lo movemos al inicio
+    if vault_path in history:
+        history.remove(vault_path)
+    
+    # Agregamos el vault al inicio del historial
+    history.insert(0, vault_path)
+    
+    # Limitamos el historial a 10 entradas
+    history = history[:10]
+    
+    try:
+        with open(VAULT_HISTORY_FILE, 'w', encoding='utf-8') as f:
+            json.dump(history, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"Error al guardar historial de vaults: {e}")
+        return False
+
+def select_vault_directory(parent=None, current_vault=''):
+    """Diálogo para seleccionar un directorio de vault"""
+    dialog = QDialog(parent)
+    dialog.setWindowTitle("Seleccionar Carpeta del Maletín")
+    dialog.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint)
+    dialog.resize(600, 400)
+    
+    layout = QVBoxLayout()
+    
+    # Etiqueta de instrucciones
+    lbl_info = QLabel("Selecciona la carpeta donde se guardarán tus archivos RTF")
+    lbl_info.setStyleSheet(f"color: {C_FG}; font-size: 14pt; padding: 10px;")
+    layout.addWidget(lbl_info)
+    
+    # Historial de vaults
+    if os.path.exists(VAULT_HISTORY_FILE):
+        history = load_vault_history()
+        if history:
+            lbl_history = QLabel("Ubicaciones recientes:")
+            lbl_history.setStyleSheet(f"color: {C_ACCENT}; font-weight: bold; margin-top: 15px;")
+            layout.addWidget(lbl_history)
+            
+            combo_history = QComboBox()
+            combo_history.setStyleSheet(f"""
+                QComboBox {{
+                    background-color: {C_SIDE};
+                    color: {C_FG};
+                    border: 1px solid {C_BORDER};
+                    border-radius: 4px;
+                    padding: 8px;
+                }}
+                QComboBox::drop-down {{
+                    border: none;
+                    width: 30px;
+                }}
+            """)
+            
+            for vault in history:
+                combo_history.addItem(vault)
+            
+            layout.addWidget(combo_history)
+    
+    # Campo de ruta actual
+    lbl_current = QLabel(f"Ubicación actual: {current_vault if current_vault else 'Ninguna'}")
+    lbl_current.setStyleSheet(f"color: {C_WARNING}; margin-top: 10px;")
+    layout.addWidget(lbl_current)
+    
+    # Botón para seleccionar carpeta
+    btn_select = QPushButton("🔍 Seleccionar Carpeta")
+    btn_select.setStyleSheet(f"""
+        QPushButton {{
+            background-color: {C_ACCENT};
+            color: {C_BG};
+            border: 1px solid {C_ACCENT};
+            border-radius: 5px;
+            padding: 12px;
+            font-weight: bold;
+            font-size: 14pt;
+        }}
+        QPushButton:hover {{
+            background-color: #5d8cda;
+            border: 1px solid #5d8cda;
+        }}
+    """)
+    layout.addWidget(btn_select)
+    
+    # Campo de ruta seleccionada
+    txt_path = QLineEdit()
+    txt_path.setPlaceholderText("Ruta de la carpeta del maletín...")
+    txt_path.setStyleSheet(f"""
+        QLineEdit {{
+            background-color: {C_SIDE};
+            color: {C_FG};
+            border: 1px solid {C_BORDER};
+            border-radius: 4px;
+            padding: 8px;
+            font-family: {FONT_FAMILY};
+        }}
+    """)
+    layout.addWidget(txt_path)
+    
+    # Botones de acción
+    btn_layout = QHBoxLayout()
+    btn_ok = QPushButton("✅ ACEPTAR")
+    btn_ok.setStyleSheet(f"""
+        QPushButton {{
+            background-color: {C_SUCCESS};
+            color: {C_BG};
+            border: 1px solid {C_SUCCESS};
+            border-radius: 5px;
+            padding: 10px;
+            font-weight: bold;
+        }}
+    """)
+    btn_cancel = QPushButton("❌ CANCELAR")
+    btn_cancel.setStyleSheet(f"""
+        QPushButton {{
+            background-color: {C_URGENT};
+            color: {C_BG};
+            border: 1px solid {C_URGENT};
+            border-radius: 5px;
+            padding: 10px;
+            font-weight: bold;
+        }}
+    """)
+    btn_layout.addWidget(btn_ok)
+    btn_layout.addWidget(btn_cancel)
+    layout.addLayout(btn_layout)
+    
+    dialog.setLayout(layout)
+    
+    # Conectar señales
+    def on_select_folder():
+        folder = QFileDialog.getExistingDirectory(
+            parent, 
+            "Seleccionar Carpeta del Maletín",
+            current_vault if current_vault else os.path.expanduser("~"),
+            QFileDialog.Option.ShowDirsOnly
+        )
+        if folder:
+            txt_path.setText(folder)
+    
+    def on_history_change(index):
+        if index >= 0 and index < combo_history.count():
+            vault_path = combo_history.itemText(index)
+            txt_path.setText(vault_path)
+    
+    btn_select.clicked.connect(on_select_folder)
+    if 'combo_history' in locals():
+        combo_history.currentIndexChanged.connect(on_history_change)
+    btn_ok.clicked.connect(dialog.accept)
+    btn_cancel.clicked.connect(dialog.reject)
+    
+    if dialog.exec() == QDialog.DialogCode.Accepted:
+        vault_path = txt_path.text().strip()
+        if vault_path and os.path.isdir(vault_path):
+            return vault_path
+    return None
+
+# =============================================================================
 # CLASES AUXILIARES
 # =============================================================================
 class InsertLinkDialog(QDialog):
@@ -209,14 +429,38 @@ class InsertLinkDialog(QDialog):
         layout.setVerticalSpacing(15)
         
         lbl_text = QLabel("Texto a mostrar:")
+        lbl_text.setStyleSheet(f"color: {C_FG};")
         self.txt_text = QLineEdit()
+        
         lbl_url = QLabel("Dirección (URL):")
+        lbl_url.setStyleSheet(f"color: {C_FG};")
         self.txt_url = QLineEdit()
         self.txt_url.setPlaceholderText("https://... o model://...")
         
         btn_ok = QPushButton("Insertar")
+        btn_ok.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C_ACCENT};
+                color: {C_BG};
+                border: 1px solid {C_ACCENT};
+                border-radius: 5px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }}
+        """)
         btn_ok.clicked.connect(self.on_ok)
+        
         btn_cancel = QPushButton("Cancelar")
+        btn_cancel.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C_LINE};
+                color: {C_URGENT};
+                border: 1px solid {C_URGENT};
+                border-radius: 5px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }}
+        """)
         btn_cancel.clicked.connect(self.reject)
         
         layout.addWidget(lbl_text, 0, 0)
@@ -272,7 +516,7 @@ class SmartLinkTextEdit(QTextEdit):
         font.setFamily("Cascadia Code")
         self.setFont(font)
 
-    # --- CAMBIO 1: ZOOM CON CTRL + SCROLL ---
+    # --- ZOOM CON CTRL + SCROLL ---
     def wheelEvent(self, event):
         if event.modifiers() == Qt.KeyboardModifier.ControlModifier:
             delta = event.angleDelta().y()
@@ -283,7 +527,6 @@ class SmartLinkTextEdit(QTextEdit):
             event.accept()
         else:
             super().wheelEvent(event)
-    # ----------------------------------------
 
     def keyReleaseEvent(self, event):
         super().keyReleaseEvent(event)
@@ -357,17 +600,51 @@ class FindReplaceDialog(QDialog):
         layout = QGridLayout()
         layout.setVerticalSpacing(15)
         self.lbl_find = QLabel("BUSCAR:")
+        self.lbl_find.setStyleSheet(f"color: {C_FG};")
         self.txt_find = QLineEdit()
         self.lbl_rep = QLabel("REEMPLAZAR CON:")
+        self.lbl_rep.setStyleSheet(f"color: {C_FG};")
         self.txt_rep = QLineEdit()
         self.chk_case = QCheckBox("Coincidir Mayús/Minús")
+        self.chk_case.setStyleSheet(f"color: {C_FG};")
         
         self.btn_find = QPushButton("BUSCAR SIGUIENTE")
-        self.btn_rep = QPushButton("REEMPLAZAR")
-        self.btn_all = QPushButton("REEMPLAZAR TODO")
-        
+        self.btn_find.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C_ACCENT};
+                color: {C_BG};
+                border: 1px solid {C_ACCENT};
+                border-radius: 5px;
+                padding: 8px;
+                font-weight: bold;
+            }}
+        """)
         self.btn_find.clicked.connect(self.find_next)
+        
+        self.btn_rep = QPushButton("REEMPLAZAR")
+        self.btn_rep.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C_WARNING};
+                color: {C_BG};
+                border: 1px solid {C_WARNING};
+                border-radius: 5px;
+                padding: 8px;
+                font-weight: bold;
+            }}
+        """)
         self.btn_rep.clicked.connect(self.replace_one)
+        
+        self.btn_all = QPushButton("REEMPLAZAR TODO")
+        self.btn_all.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C_SUCCESS};
+                color: {C_BG};
+                border: 1px solid {C_SUCCESS};
+                border-radius: 5px;
+                padding: 8px;
+                font-weight: bold;
+            }}
+        """)
         self.btn_all.clicked.connect(self.replace_all)
         
         layout.addWidget(self.lbl_find, 0, 0)
@@ -417,6 +694,7 @@ class FindReplaceDialog(QDialog):
 class ModelManagerApp(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.current_vault = ""
         self.current_file_path = None
         self.all_files = [] 
         self.content_cache = {} 
@@ -425,14 +703,19 @@ class ModelManagerApp(QMainWindow):
         self.history_index = -1  
         self.is_navigating = False
         
+        # Cargar configuración del vault
+        self.current_vault, self.startup_file = load_vault_config()
+        
+        # Si no hay vault configurado, pedirlo en la primera ejecución
+        if not self.current_vault or not os.path.exists(self.current_vault):
+            self.select_vault_on_first_run()
+        
         self.init_ui()
-        self.ensure_directory()
         
-        # --- CARGAR CONFIGURACIÓN DE INICIO ---
-        self.startup_file = self.load_startup_config()
+        if self.current_vault:
+            self.ensure_vault_directory()
+            self.load_models()
         
-        self.load_models()
-
         icon_path = resource_path("app.ico")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
@@ -446,30 +729,57 @@ class ModelManagerApp(QMainWindow):
                 opened = True
         
         # Si no se abrió nada externo y tenemos un archivo de inicio configurado
-        if not opened and self.startup_file:
-            path_inicio = os.path.join(MODELS_DIR, self.startup_file)
+        if not opened and self.startup_file and self.current_vault:
+            path_inicio = os.path.join(self.current_vault, self.startup_file)
             if os.path.exists(path_inicio):
                 # Seleccionarlo y abrirlo
                 items = self.list_widget.findItems(self.startup_file, Qt.MatchFlag.MatchFixedString)
                 if items:
                     self.list_widget.setCurrentItem(items[0])
-                    # (El setCurrentItem dispara on_model_selected que carga el archivo)
 
-    def ensure_directory(self):
-        if not os.path.exists(MODELS_DIR): os.makedirs(MODELS_DIR)
+    def select_vault_on_first_run(self):
+        """Muestra el diálogo para seleccionar el vault en la primera ejecución"""
+        vault_path = select_vault_directory(self, self.current_vault)
+        if vault_path:
+            self.current_vault = vault_path
+            save_vault_config(self.current_vault)
+            save_vault_history(self.current_vault)
+            QMessageBox.information(self, "Vault Configurado", 
+                                   f"¡Vault configurado correctamente!\n\n"
+                                   f"Ubicación: {self.current_vault}\n\n"
+                                   "Todos tus archivos se guardarán en esta carpeta.")
+        else:
+            # Si el usuario cancela, usar un vault por defecto
+            default_vault = os.path.join(os.path.expanduser("~"), "Maletin_Notas")
+            self.current_vault = default_vault
+            save_vault_config(self.current_vault)
+            save_vault_history(self.current_vault)
+            os.makedirs(self.current_vault, exist_ok=True)
+            QMessageBox.information(self, "Vault por Defecto", 
+                                   f"Se ha creado un vault por defecto en:\n\n"
+                                   f"{self.current_vault}")
 
-    def load_startup_config(self):
-        if os.path.exists(CONFIG_FILE):
+    def ensure_vault_directory(self):
+        """Asegura que el directorio del vault exista"""
+        if self.current_vault and not os.path.exists(self.current_vault):
             try:
-                with open(CONFIG_FILE, 'r') as f:
-                    data = json.load(f)
-                    return data.get("startup_file", "")
-            except: pass
-        return ""
+                os.makedirs(self.current_vault, exist_ok=True)
+                QMessageBox.information(self, "Vault Creado", 
+                                       f"Se ha creado el directorio del vault:\n{self.current_vault}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", 
+                                   f"No se pudo crear el directorio del vault:\n{e}")
+                self.current_vault = ""
 
     def init_ui(self):
         self.setWindowTitle(APP_NAME)
         self.resize(1600, 950) 
+        
+        # Barra de estado con información del vault
+        self.status_bar = self.statusBar()
+        self.vault_label = QLabel(f"📁 Vault: {self.current_vault if self.current_vault else 'No configurado'}")
+        self.vault_label.setStyleSheet(f"color: {C_ACCENT}; font-weight: bold; padding: 5px;")
+        self.status_bar.addPermanentWidget(self.vault_label)
         
         central = QWidget()
         self.setCentralWidget(central)
@@ -513,13 +823,53 @@ class ModelManagerApp(QMainWindow):
         bot_layout = QHBoxLayout()
         self.btn_save = QPushButton("GUARDAR (CTRL+S)")
         self.btn_save.clicked.connect(self.save_model)
+        self.btn_save.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C_SUCCESS};
+                color: {C_BG};
+                border: 1px solid {C_SUCCESS};
+                border-radius: 5px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: #7ec55d;
+                border: 1px solid #7ec55d;
+            }}
+        """)
         
         self.btn_delete = QPushButton("ELIMINAR")
-        self.btn_delete.setStyleSheet(f"color: {C_URGENT}; border: 1px solid {C_URGENT};")
+        self.btn_delete.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C_URGENT};
+                color: {C_BG};
+                border: 1px solid {C_URGENT};
+                border-radius: 5px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: #e05e7d;
+                border: 1px solid #e05e7d;
+            }}
+        """)
         self.btn_delete.clicked.connect(self.delete_model)
         
         self.btn_copy = QPushButton("📋 COPIAR TODO")
-        self.btn_copy.setStyleSheet(f"color: {C_SUCCESS}; border: 1px solid {C_SUCCESS};")
+        self.btn_copy.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C_ACCENT};
+                color: {C_BG};
+                border: 1px solid {C_ACCENT};
+                border-radius: 5px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: #5d8cda;
+                border: 1px solid #5d8cda;
+            }}
+        """)
         self.btn_copy.clicked.connect(self.copy_all)
         
         bot_layout.addWidget(self.btn_save)
@@ -536,20 +886,29 @@ class ModelManagerApp(QMainWindow):
         layout.addWidget(splitter)
         
         self.btn_save.setShortcut("Ctrl+S")
-        self.status_bar = self.statusBar()
+        
         self.lbl_stats = QLabel("LINEAS: 0 | CARACTERES: 0")
-        self.status_bar.addPermanentWidget(self.lbl_stats)
+        self.lbl_stats.setStyleSheet(f"color: {C_FG}; padding: 5px;")
+        self.status_bar.addWidget(self.lbl_stats)
 
-    # --- CAMBIO 2: MENÚ CONTEXTUAL PARA DEFINIR INICIO ---
     def show_context_menu(self, pos):
         item = self.list_widget.itemAt(pos)
         if item:
             menu = QMenu()
-            # Estilo del menú
             menu.setStyleSheet(f"""
-                QMenu {{ background-color: {C_BG}; border: 1px solid {C_ACCENT}; }}
-                QMenu::item {{ padding: 8px 20px; color: {C_FG}; }}
-                QMenu::item:selected {{ background-color: {C_SEL}; }}
+                QMenu {{ 
+                    background-color: {C_BG}; 
+                    border: 1px solid {C_ACCENT}; 
+                    padding: 5px;
+                }}
+                QMenu::item {{ 
+                    padding: 8px 20px; 
+                    color: {C_FG}; 
+                    border-radius: 4px;
+                }}
+                QMenu::item:selected {{ 
+                    background-color: {C_SEL}; 
+                }}
             """)
             
             act_home = QAction("🏠 Establecer como Inicio", self)
@@ -560,14 +919,12 @@ class ModelManagerApp(QMainWindow):
 
     def set_as_startup(self, filename):
         try:
-            with open(CONFIG_FILE, 'w') as f:
-                json.dump({"startup_file": filename}, f)
+            save_vault_config(self.current_vault, filename)
             self.startup_file = filename
             QMessageBox.information(self, "Inicio", f"'{filename}' se abrirá al iniciar el programa.", QMessageBox.StandardButton.Ok)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo guardar la configuración: {e}")
 
-    # --- RESTO DEL CÓDIGO ---
     def add_menu_action(self, menu, text, slot, shortcut=None):
         a = QAction(text, self)
         if shortcut: a.setShortcut(shortcut)
@@ -581,7 +938,7 @@ class ModelManagerApp(QMainWindow):
         self.add_menu_action(m_file, "Guardar", self.save_model, "Ctrl+S")
         m_file.addSeparator()
         self.add_menu_action(m_file, "Abrir...", self.open_any_file)
-        self.add_menu_action(m_file, "Importar Masivo", self.mass_import)
+        self.add_menu_action(m_file, "Localizar Maletín...", self.select_vault_directory_menu)
         m_file.addSeparator()
         self.add_menu_action(m_file, "Salir", self.close)
         
@@ -654,6 +1011,35 @@ class ModelManagerApp(QMainWindow):
         self.btn_open.triggered.connect(self.open_any_file)
         self.toolbar.addAction(self.btn_open)
 
+    def select_vault_directory_menu(self):
+        """Permite cambiar el vault desde el menú"""
+        vault_path = select_vault_directory(self, self.current_vault)
+        if vault_path and vault_path != self.current_vault:
+            # Preguntar si guardar cambios antes de cambiar de vault
+            if self.current_file_path and self.editor.document().isModified():
+                reply = QMessageBox.question(self, "Cambiar Vault", 
+                                            "Hay cambios sin guardar. ¿Guardar antes de cambiar de vault?",
+                                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel)
+                if reply == QMessageBox.StandardButton.Cancel:
+                    return
+                if reply == QMessageBox.StandardButton.Yes:
+                    self.save_model()
+            
+            self.current_vault = vault_path
+            save_vault_config(self.current_vault, self.startup_file)
+            save_vault_history(self.current_vault)
+            self.ensure_vault_directory()
+            
+            # Actualizar interfaz
+            self.vault_label.setText(f"📁 Vault: {self.current_vault}")
+            self.load_models()
+            self.editor.clear()
+            self.current_file_path = None
+            
+            QMessageBox.information(self, "Vault Cambiado", 
+                                   f"¡Vault cambiado exitosamente!\n\n"
+                                   f"Ubicación: {self.current_vault}")
+
     def add_to_history(self, filepath):
         if self.is_navigating: return
         if self.history and self.history_index >= 0:
@@ -703,9 +1089,9 @@ class ModelManagerApp(QMainWindow):
                 target_file = f
                 break
         
-        if target_file:
+        if target_file and self.current_vault:
             if self.check_save():
-                path = os.path.join(MODELS_DIR, target_file)
+                path = os.path.join(self.current_vault, target_file)
                 self.load_file(path)
         else:
             self.handle_external_link(target_name)
@@ -743,7 +1129,18 @@ class ModelManagerApp(QMainWindow):
 
             filename = os.path.basename(filepath)
             filename = os.path.splitext(filename)[0] + ".rtf"
-            target_path = os.path.join(MODELS_DIR, filename)
+            
+            if not self.current_vault:
+                vault_path = select_vault_directory(self, self.current_vault)
+                if vault_path:
+                    self.current_vault = vault_path
+                    save_vault_config(self.current_vault)
+                    save_vault_history(self.current_vault)
+                    self.ensure_vault_directory()
+                else:
+                    return
+            
+            target_path = os.path.join(self.current_vault, filename)
             
             if "{\\rtf" in content or "<html" in content or ext == '.md':
                 self.editor.setHtml(content)
@@ -773,8 +1170,18 @@ class ModelManagerApp(QMainWindow):
         return text
 
     def create_new(self, name):
+        if not self.current_vault:
+            vault_path = select_vault_directory(self, self.current_vault)
+            if vault_path:
+                self.current_vault = vault_path
+                save_vault_config(self.current_vault)
+                save_vault_history(self.current_vault)
+                self.ensure_vault_directory()
+            else:
+                return
+        
         filename = f"{name}.rtf"
-        path = os.path.join(MODELS_DIR, filename)
+        path = os.path.join(self.current_vault, filename)
         try:
             with open(path, 'w', encoding='utf-8') as f: f.write("")
             self.load_models()
@@ -791,13 +1198,21 @@ class ModelManagerApp(QMainWindow):
         return True
 
     def load_models(self):
+        """Carga los archivos del vault actual"""
+        if not self.current_vault or not os.path.exists(self.current_vault):
+            self.list_widget.clear()
+            self.all_files = []
+            self.content_cache = {}
+            self.vault_label.setText("📁 Vault: No configurado")
+            return
+        
         self.list_widget.clear()
         self.all_files = []
         self.content_cache = {}
         try:
-            for f in os.listdir(MODELS_DIR):
+            for f in os.listdir(self.current_vault):
                 if f.lower().endswith(('.rtf','.txt','.html')):
-                    path = os.path.join(MODELS_DIR, f)
+                    path = os.path.join(self.current_vault, f)
                     try:
                         with open(path, 'r', encoding='utf-8', errors='ignore') as file:
                             content = file.read().lower()
@@ -805,7 +1220,12 @@ class ModelManagerApp(QMainWindow):
                     except: self.content_cache[f] = ""
                     self.all_files.append(f)
                     self.list_widget.addItem(f)
-        except: pass
+            
+            # Actualizar etiqueta del vault
+            self.vault_label.setText(f"📁 Vault: {self.current_vault}")
+        except Exception as e:
+            print(f"Error al cargar modelos: {e}")
+            QMessageBox.warning(self, "Error", f"No se pudieron cargar los archivos del vault:\n{e}")
 
     def filter_models(self, txt):
         txt = txt.lower()
@@ -817,12 +1237,18 @@ class ModelManagerApp(QMainWindow):
 
     def on_model_selected(self, curr, prev):
         if not curr: return
-        path = os.path.join(MODELS_DIR, curr.text())
+        if not self.current_vault:
+            return
+        
+        path = os.path.join(self.current_vault, curr.text())
         if path == self.current_file_path: return
         if self.check_save(): self.load_file(path)
 
     def load_file(self, path):
-        if not os.path.exists(path): return
+        if not os.path.exists(path): 
+            QMessageBox.warning(self, "Error", f"El archivo no existe:\n{path}")
+            return
+        
         try:
             with open(path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
@@ -847,20 +1273,34 @@ class ModelManagerApp(QMainWindow):
                 self.list_widget.setCurrentItem(items[0])
                 self.list_widget.blockSignals(False)
             self.add_to_history(path)
-        except Exception as e: print(f"Error: {e}")
+        except Exception as e: 
+            QMessageBox.critical(self, "Error", f"No se pudo cargar el archivo:\n{e}")
 
     def save_model(self):
+        if not self.current_vault:
+            vault_path = select_vault_directory(self, self.current_vault)
+            if vault_path:
+                self.current_vault = vault_path
+                save_vault_config(self.current_vault)
+                save_vault_history(self.current_vault)
+                self.ensure_vault_directory()
+            else:
+                return
+        
         if self.current_file_path:
             content = self.editor.toHtml()
-            with open(self.current_file_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            self.editor.document().setModified(False)
-            self.status_bar.showMessage("Guardado.")
+            try:
+                with open(self.current_file_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                self.editor.document().setModified(False)
+                self.status_bar.showMessage("Guardado.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"No se pudo guardar el archivo:\n{e}")
         else:
             name, ok = QInputDialog.getText(self, "Guardar", "Nombre:")
             if ok and name:
                 if not name.lower().endswith('.rtf'): name+=".rtf"
-                path = os.path.join(MODELS_DIR, name)
+                path = os.path.join(self.current_vault, name)
                 self.current_file_path = path
                 self.save_model()
                 self.load_models()
@@ -887,22 +1327,6 @@ class ModelManagerApp(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(self, "Error", str(e))
 
-    def mass_import(self):
-        if QMessageBox.question(self, "Importar", "¿Convertir todos .txt?", QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
-            c=0
-            for f in os.listdir(MODELS_DIR):
-                if f.endswith(".txt"):
-                    base = os.path.splitext(f)[0]
-                    p = os.path.join(MODELS_DIR, f)
-                    rp = os.path.join(MODELS_DIR, base+".rtf")
-                    if not os.path.exists(rp):
-                        with open(p, 'r', encoding='utf-8', errors='ignore') as fi: t=fi.read()
-                        with open(rp, 'w', encoding='utf-8') as fo: 
-                            fo.write(f'<html><body style="font-size:16pt;"><pre>{t}</pre></body></html>')
-                        c+=1
-            self.load_models()
-            QMessageBox.information(self,"Info",f"Hecho: {c}")
-
     # --- TOOLS ---
     def set_fmt(self, t):
         f = self.editor.fontWeight()
@@ -918,7 +1342,7 @@ class ModelManagerApp(QMainWindow):
         if c.isValid(): self.editor.setTextBackgroundColor(c)
     
     def insert_image(self):
-        p, _ = QFileDialog.getOpenFileName(self, "Img", "", "Img (*.png *.jpg)")
+        p, _ = QFileDialog.getOpenFileName(self, "Img", "", "Img (*.png *.jpg *.jpeg *.gif *.bmp)")
         if p:
             img = QPixmap(p)
             if img.width()>500: img=img.scaledToWidth(500)
@@ -926,8 +1350,8 @@ class ModelManagerApp(QMainWindow):
             self.editor.textCursor().insertImage(p)
     
     def insert_table(self):
-        r,ok1=QInputDialog.getInt(self,"F","F:",2)
-        c,ok2=QInputDialog.getInt(self,"C","C:",2)
+        r,ok1=QInputDialog.getInt(self,"F","F:",2, 1, 100)
+        c,ok2=QInputDialog.getInt(self,"C","C:",2, 1, 100)
         if ok1 and ok2:
             fmt = QTextTableFormat()
             fmt.setBorder(1); fmt.setBorderBrush(QColor(C_BORDER)); fmt.setCellPadding(5)
