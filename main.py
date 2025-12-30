@@ -13,8 +13,8 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
 from PyQt6.QtGui import (QAction, QIcon, QFont, QColor, QTextCursor, 
                          QTextListFormat, QTextTableFormat, QTextCharFormat,
                          QTextBlockFormat, QTextDocument, QPixmap, QDesktopServices,
-                         QSyntaxHighlighter)
-from PyQt6.QtCore import Qt, QSize, QUrl, QRegularExpression, QSettings
+                         QSyntaxHighlighter, QKeySequence, QShortcut)  # QShortcut va aquí
+from PyQt6.QtCore import Qt, QSize, QUrl, QRegularExpression, QEvent
 
 # =============================================================================
 # CONFIGURACIÓN
@@ -395,11 +395,13 @@ def select_vault_directory(parent=None, current_vault=''):
         )
         if folder:
             txt_path.setText(folder)
+            lbl_current.setText(f"Ubicación seleccionada: {folder}")
     
     def on_history_change(index):
         if index >= 0 and index < combo_history.count():
             vault_path = combo_history.itemText(index)
             txt_path.setText(vault_path)
+            lbl_current.setText(f"Ubicación seleccionada: {vault_path}")
     
     btn_select.clicked.connect(on_select_folder)
     if 'combo_history' in locals():
@@ -515,6 +517,20 @@ class SmartLinkTextEdit(QTextEdit):
         font.setPointSize(16)
         font.setFamily("Cascadia Code")
         self.setFont(font)
+        
+        # --- Solución para Ctrl+S BUG: Instalar filtro de eventos ---
+        self.installEventFilter(self)
+        # --------------------------------------------------------------
+
+    # --- Solución para Ctrl+S BUG: Filtro de eventos para capturar Ctrl+S ---
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.KeyPress:
+            if event.modifiers() == Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_S:
+                # Llamar directamente a la función de guardar
+                self.parent_window.save_model()
+                return True  # Consumir el evento para que no se propague
+        return super().eventFilter(obj, event)
+    # -------------------------------------------------------------------------
 
     # --- ZOOM CON CTRL + SCROLL ---
     def wheelEvent(self, event):
@@ -712,6 +728,10 @@ class ModelManagerApp(QMainWindow):
         
         self.init_ui()
         
+        # --- Solución para Ctrl+S BUG: Configurar atajos globales ---
+        self.setup_global_shortcuts()
+        # ------------------------------------------------------------
+        
         if self.current_vault:
             self.ensure_vault_directory()
             self.load_models()
@@ -771,6 +791,28 @@ class ModelManagerApp(QMainWindow):
                                    f"No se pudo crear el directorio del vault:\n{e}")
                 self.current_vault = ""
 
+    def setup_global_shortcuts(self):
+        """Configura atajos de teclado globales que funcionan en toda la aplicación"""
+        # Ctrl+S para guardar
+        save_shortcut = QShortcut(QKeySequence.StandardKey.Save, self)
+        save_shortcut.activated.connect(self.save_model)
+        
+        # Ctrl+N para nuevo
+        new_shortcut = QShortcut(QKeySequence.StandardKey.New, self)
+        new_shortcut.activated.connect(self.new_model)
+        
+        # Ctrl+F para buscar
+        find_shortcut = QShortcut(QKeySequence.StandardKey.Find, self)
+        find_shortcut.activated.connect(self.show_find)
+        
+        # Ctrl+Z para deshacer
+        undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self)
+        undo_shortcut.activated.connect(self.editor.undo)
+        
+        # Ctrl+Y para rehacer
+        redo_shortcut = QShortcut(QKeySequence.StandardKey.Redo, self)
+        redo_shortcut.activated.connect(self.editor.redo)
+
     def init_ui(self):
         self.setWindowTitle(APP_NAME)
         self.resize(1600, 950) 
@@ -821,7 +863,7 @@ class ModelManagerApp(QMainWindow):
         
         # BOTONERA
         bot_layout = QHBoxLayout()
-        self.btn_save = QPushButton("GUARDAR (CTRL+S)")
+        self.btn_save = QPushButton("GUARDAR")
         self.btn_save.clicked.connect(self.save_model)
         self.btn_save.setStyleSheet(f"""
             QPushButton {{
@@ -885,7 +927,7 @@ class ModelManagerApp(QMainWindow):
         splitter.setSizes([350, 1150]) 
         layout.addWidget(splitter)
         
-        self.btn_save.setShortcut("Ctrl+S")
+        # --- ELIMINADO: self.btn_save.setShortcut("Ctrl+S") - Ahora se maneja con atajos globales ---
         
         self.lbl_stats = QLabel("LINEAS: 0 | CARACTERES: 0")
         self.lbl_stats.setStyleSheet(f"color: {C_FG}; padding: 5px;")
@@ -935,7 +977,8 @@ class ModelManagerApp(QMainWindow):
         mb = self.menuBar()
         m_file = mb.addMenu("&ARCHIVO")
         self.add_menu_action(m_file, "Nuevo", self.new_model, "Ctrl+N")
-        self.add_menu_action(m_file, "Guardar", self.save_model, "Ctrl+S")
+        # --- CORREGIDO: Eliminar shortcut del menú para evitar conflictos ---
+        self.add_menu_action(m_file, "Guardar", self.save_model)
         m_file.addSeparator()
         self.add_menu_action(m_file, "Abrir...", self.open_any_file)
         self.add_menu_action(m_file, "Localizar Maletín...", self.select_vault_directory_menu)
@@ -1277,6 +1320,7 @@ class ModelManagerApp(QMainWindow):
             QMessageBox.critical(self, "Error", f"No se pudo cargar el archivo:\n{e}")
 
     def save_model(self):
+        """Método mejorado para guardar con mejor manejo de errores"""
         if not self.current_vault:
             vault_path = select_vault_directory(self, self.current_vault)
             if vault_path:
@@ -1285,33 +1329,71 @@ class ModelManagerApp(QMainWindow):
                 save_vault_history(self.current_vault)
                 self.ensure_vault_directory()
             else:
-                return
+                return False
         
         if self.current_file_path:
             content = self.editor.toHtml()
             try:
+                # Validar que el contenido no esté vacío
+                if not content.strip():
+                    reply = QMessageBox.question(self, "Guardar", "El contenido está vacío. ¿Guardar igual?",
+                                                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                    if reply == QMessageBox.StandardButton.No:
+                        return False
+                
                 with open(self.current_file_path, 'w', encoding='utf-8') as f:
                     f.write(content)
                 self.editor.document().setModified(False)
-                self.status_bar.showMessage("Guardado.")
+                self.status_bar.showMessage(f"Guardado: {os.path.basename(self.current_file_path)}", 3000)
+                
+                # Actualizar el título de la ventana para mostrar estado guardado
+                current_title = self.windowTitle()
+                if "*" in current_title:
+                    self.setWindowTitle(APP_NAME)
+                    
+                return True
             except Exception as e:
-                QMessageBox.critical(self, "Error", f"No se pudo guardar el archivo:\n{e}")
+                QMessageBox.critical(self, "Error de Guardado", 
+                                   f"No se pudo guardar el archivo:\n\n{str(e)}\n\n"
+                                   f"Ruta: {self.current_file_path}")
+                return False
         else:
-            name, ok = QInputDialog.getText(self, "Guardar", "Nombre:")
-            if ok and name:
-                if not name.lower().endswith('.rtf'): name+=".rtf"
+            name, ok = QInputDialog.getText(self, "Guardar como", "Nombre del archivo:")
+            if ok and name.strip():
+                # Asegurar que tenga extensión .rtf
+                if not name.lower().endswith('.rtf'):
+                    name += ".rtf"
+                
+                # Validar nombre de archivo
+                if any(char in name for char in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']):
+                    QMessageBox.warning(self, "Nombre inválido", "El nombre no puede contener caracteres especiales como /, \\, :, *, ?, \", <, >, |")
+                    return False
+                
                 path = os.path.join(self.current_vault, name)
+                
+                # Verificar si el archivo ya existe
+                if os.path.exists(path):
+                    reply = QMessageBox.question(self, "Archivo existente", 
+                                               f"El archivo '{name}' ya existe. ¿Sobrescribir?",
+                                               QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                    if reply == QMessageBox.StandardButton.No:
+                        return False
+                
                 self.current_file_path = path
-                self.save_model()
-                self.load_models()
-                self.add_to_history(path)
+                return self.save_model()
+            return False
+        
+        return False
 
     def new_model(self):
         if self.check_save():
             self.editor.clear()
             self.current_file_path = None
             self.list_widget.clearSelection()
-            self.editor.setFontPointSize(16) 
+            self.editor.setFontPointSize(16)
+            self.setWindowTitle(f"{APP_NAME} - Nuevo documento")
+            return True
+        return False
 
     def delete_model(self):
         if not self.current_file_path: return
@@ -1324,6 +1406,7 @@ class ModelManagerApp(QMainWindow):
                 self.editor.clear()
                 self.load_models()
                 self.status_bar.showMessage("Archivo eliminado.")
+                self.setWindowTitle(APP_NAME)
             except Exception as e:
                 QMessageBox.critical(self, "Error", str(e))
 
@@ -1379,6 +1462,14 @@ class ModelManagerApp(QMainWindow):
     def update_stats(self):
         t = self.editor.toPlainText()
         self.lbl_stats.setText(f"LÍNEAS: {self.editor.document().blockCount()} | CARACTERES: {len(t)}")
+        
+        # Actualizar título de la ventana si hay cambios sin guardar
+        if self.editor.document().isModified():
+            if "*" not in self.windowTitle():
+                self.setWindowTitle(f"*{self.windowTitle()}")
+        else:
+            if self.windowTitle().startswith("*"):
+                self.setWindowTitle(self.windowTitle()[1:])
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
